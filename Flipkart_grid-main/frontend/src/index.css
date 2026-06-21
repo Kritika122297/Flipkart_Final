@@ -1,0 +1,223 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ══════════════════════════════════════════════════════════
+   SMARTPARK AI — DESIGN SYSTEM
+   Deep cosmic dark theme · glassmorphism · accent glow system
+   ══════════════════════════════════════════════════════════ */
+
+:root {
+  --bg-base: #080c14;
+  --bg-elevated: #0e1525;
+  --bg-card: #131d30;
+
+  --border-subtle: rgba(148, 163, 220, 0.08);
+  --border-strong: rgba(148, 163, 220, 0.15);
+
+  --violet: #7c6af7;
+  --violet-glow: rgba(124, 106, 247, 0.35);
+  --violet-muted: rgba(124, 106, 247, 0.12);
+  --cyan: #22d3ee;
+  --cyan-glow: rgba(34, 211, 238, 0.3);
+  --cyan-muted: rgba(34, 211, 238, 0.1);
+  --emerald: #10b981;
+  --emerald-glow: rgba(16, 185, 129, 0.28);
+  --emerald-muted: rgba(16, 185, 129, 0.1);
+  --amber: #f59e0b;
+  --amber-glow: rgba(245, 158, 11, 0.3);
+  --amber-muted: rgba(245, 158, 11, 0.1);
+  --rose: #fb4d6d;
+  --rose-glow: rgba(251, 77, 109, 0.32);
+  --rose-muted: rgba(251, 77, 109, 0.1);
+
+  --text-primary: #e2e8f0;
+  --text-body: #94a3b8;
+  --text-faint: #475569;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg-base);
+  background-image:
+    radial-gradient(1200px 600px at 15% -5%, rgba(124, 106, 247, 0.1), transparent 60%),
+    radial-gradient(1000px 500px at 100% 0%, rgba(34, 211, 238, 0.07), transparent 55%),
+    radial-gradient(900px 700px at 50% 120%, rgba(16, 185, 129, 0.05), transparent 60%);
+  color: var(--text-body);
+  font-family: "Inter", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ── Typographic helpers ─────────────────────────────────── */
+.font-display {
+  font-family: "Space Grotesk", "Inter", sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.label-caps {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  color: var(--text-faint);
+  font-size: 0.68rem;
+}
+
+.text-gradient-violet {
+  background: linear-gradient(135deg, #7c6af7, #22d3ee);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ── Glassmorphism panel ─────────────────────────────────── */
+.glass {
+  background: rgba(13, 21, 37, 0.72);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(148, 163, 220, 0.1);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* ── Scrollbars ──────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(124, 106, 247, 0.28);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 106, 247, 0.5);
+}
+
+/* ── Range slider styling ────────────────────────────────── */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--track-fill, var(--violet)) var(--val, 50%),
+    rgba(148, 163, 220, 0.12) var(--val, 50%)
+  );
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--thumb-color, var(--amber));
+  cursor: pointer;
+  box-shadow: 0 0 12px var(--thumb-glow, var(--amber-glow));
+  border: 2px solid #0e1525;
+  transition: transform 0.15s ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--thumb-color, var(--amber));
+  cursor: pointer;
+  border: 2px solid #0e1525;
+  box-shadow: 0 0 12px var(--thumb-glow, var(--amber-glow));
+}
+
+/* ── Leaflet dark overrides ──────────────────────────────── */
+.leaflet-container {
+  background: #080c14 !important;
+  font-family: "Inter", sans-serif;
+}
+.leaflet-control-attribution {
+  background: rgba(8, 12, 20, 0.7) !important;
+  color: #475569 !important;
+  font-size: 9px !important;
+}
+.leaflet-control-attribution a {
+  color: #7c6af7 !important;
+}
+.leaflet-bar a {
+  background: rgba(14, 21, 37, 0.92) !important;
+  color: #94a3b8 !important;
+  border-color: rgba(148, 163, 220, 0.12) !important;
+}
+.leaflet-bar a:hover {
+  background: rgba(124, 106, 247, 0.2) !important;
+  color: #fff !important;
+}
+.leaflet-popup-content-wrapper {
+  background: rgba(14, 21, 37, 0.96) !important;
+  color: #e2e8f0 !important;
+  border: 1px solid rgba(148, 163, 220, 0.15) !important;
+  border-radius: 12px !important;
+  backdrop-filter: blur(12px);
+}
+.leaflet-popup-tip {
+  background: rgba(14, 21, 37, 0.96) !important;
+}
+
+/* ── Map marker pulse (DOM-based divIcons) ───────────────── */
+.map-pulse {
+  border-radius: 50%;
+  position: relative;
+}
+.map-pulse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: inherit;
+  animation: marker-ring 2s ease-out infinite;
+}
+.map-pulse.critical::after {
+  animation-duration: 1.2s;
+}
+@keyframes marker-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+/* hide number-input spinners */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* selection */
+::selection {
+  background: rgba(124, 106, 247, 0.35);
+  color: #fff;
+}

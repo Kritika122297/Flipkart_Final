@@ -1,0 +1,18 @@
+# VS Code local history (may contain secrets)
+.history/
+
+# Environment variable files
+.env
+*.env
+
+# Streamlit secrets (all levels)
+**/.streamlit/secrets.toml
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+
+# OS
+.DS_Store
+Thumbs.db
