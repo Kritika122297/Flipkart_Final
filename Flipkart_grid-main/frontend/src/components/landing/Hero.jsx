@@ -1,8 +1,12 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Activity, Cpu, Radio } from "lucide-react";
 import BengaluruMap from "../map/BengaluruMap.jsx";
+import MapModeToggle from "../map/MapModeToggle.jsx";
+import TrafficParticles from "../map/TrafficParticles.jsx";
 import Badge from "../ui/Badge.jsx";
+import { useSelectedLocation } from "../../context/LocationContext.jsx";
 import { MAP_MARKERS, HEAT_POINTS, ZONE_STATS, KPIS } from "../../data/mockData.js";
 
 const radar = ZONE_STATS.filter((z) => z.risk === "critical")
@@ -20,113 +24,134 @@ const fadeUp = {
 
 export default function Hero() {
   const navigate = useNavigate();
+  const [mapMode, setMapMode] = useState("Dark");
+  const { selectedLocation, setSelectedLocation } = useSelectedLocation();
+
   return (
-    <section className="relative mx-auto max-w-7xl px-5 pb-10 pt-28 md:pt-32">
-      {/* Eyebrow + heading */}
-      <div className="mb-8 text-center">
-        <motion.div variants={fadeUp} initial="hidden" animate="show" custom={0} className="mb-5 flex justify-center">
-          <Badge accent="cyan" pulse>
-            Live · Bengaluru Traffic Police Grid
-          </Badge>
-        </motion.div>
-        <motion.h1
-          variants={fadeUp}
-          initial="hidden"
-          animate="show"
-          custom={1}
-          className="font-display text-5xl leading-[1.05] text-ink-primary md:text-7xl"
-        >
-          Transform congestion into
-          <br />
-          <span className="text-gradient-violet">actionable intelligence</span>
-        </motion.h1>
-        <motion.p
-          variants={fadeUp}
-          initial="hidden"
-          animate="show"
-          custom={2}
-          className="mx-auto mt-5 max-w-2xl text-base text-ink-body md:text-lg"
-        >
-          SmartPark AI fuses YOLO CCTV detection, OR-Tools fleet routing, and ML forecasting into
-          one command center — turning parking chaos across Bengaluru into a real-time enforcement
-          advantage.
-        </motion.p>
-        <motion.div
-          variants={fadeUp}
-          initial="hidden"
-          animate="show"
-          custom={3}
-          className="mt-7 flex flex-wrap items-center justify-center gap-3"
-        >
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="group relative inline-flex items-center gap-2 overflow-hidden rounded-inner bg-gradient-to-r from-violet to-[#6366F1] px-6 py-3 font-semibold text-white shadow-glow-violet transition-transform hover:-translate-y-0.5"
-          >
-            Launch Command Center
-            <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
-          </button>
-          <a
-            href="#features"
-            className="rounded-inner border border-strong px-6 py-3 font-semibold text-ink-body transition-colors hover:text-ink-primary"
-          >
-            Explore capabilities
-          </a>
-        </motion.div>
+    <section className="relative h-[100svh] min-h-[640px] w-full overflow-hidden">
+      {/* ── Full-screen background map ─────────────────────────── */}
+      <div className="absolute inset-0">
+        <BengaluruMap
+          markers={MAP_MARKERS.map((m) => ({ ...m, icon: true }))}
+          heat
+          heatPoints={HEAT_POINTS}
+          radar={radar}
+          height="100%"
+          zoom={12}
+          mode={mapMode}
+          onSelectLocation={setSelectedLocation}
+          selectedLocation={selectedLocation}
+          borderRadius="0"
+        />
       </div>
 
-      {/* Map visualization */}
-      <motion.div
-        variants={fadeUp}
-        initial="hidden"
-        animate="show"
-        custom={4}
-        className="glass relative rounded-card p-2 md:p-3"
-      >
-        <span className="pointer-events-none absolute inset-x-0 top-0 z-[1000] h-px bg-gradient-to-r from-transparent via-violet to-transparent" />
+      {/* Traffic-flow light trails over the map */}
+      <TrafficParticles />
 
-        {/* Floating live badge */}
-        <div className="pointer-events-none absolute left-6 top-6 z-[1000]">
-          <div
-            className="flex items-center gap-2 rounded-inner px-3.5 py-2 text-sm font-semibold text-white shadow-glow-rose"
-            style={{ background: "rgba(251,77,109,0.16)", border: "1px solid rgba(251,77,109,0.4)", backdropFilter: "blur(8px)" }}
-          >
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-rose" />
-            </span>
-            LIVE — {KPIS.activeViolations} Active Violations
-          </div>
-        </div>
+      {/* Legibility scrim — kept subtle so the map stays the visual backbone */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(120% 80% at 50% 42%, rgba(8,12,20,0.62) 0%, rgba(8,12,20,0.30) 45%, transparent 70%), linear-gradient(180deg, rgba(8,12,20,0.55) 0%, transparent 22%, transparent 70%, rgba(8,12,20,0.85) 100%)",
+        }}
+      />
 
-        {/* Corner stat chips */}
-        <div className="pointer-events-none absolute right-6 top-6 z-[1000] hidden gap-2 sm:flex">
-          <ChipStat icon={Activity} label="Avg CIS" value={KPIS.avgCIS} accent="#7C6AF7" />
-          <ChipStat icon={Cpu} label="AI uptime" value={`${KPIS.aiUptime}%`} accent="#22D3EE" />
-          <ChipStat icon={Radio} label="Patrols" value={`${KPIS.fleetActive}/${KPIS.fleetTotal}`} accent="#10B981" />
-        </div>
+      {/* ── Map mode toggle (Task B) ──────────────────────────── */}
+      <div className="absolute right-5 top-24 z-[1000] md:top-28">
+        <MapModeToggle mode={mapMode} onChange={setMapMode} />
+      </div>
 
-        <div className="overflow-hidden rounded-[16px]">
-          <BengaluruMap
-            markers={MAP_MARKERS.map((m) => ({ ...m, icon: true }))}
-            heat
-            heatPoints={HEAT_POINTS}
-            radar={radar}
-            height="540px"
-            zoom={12}
-          />
-        </div>
-
-        {/* Legend */}
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-4 px-2 pb-1 text-xs text-ink-body">
-          <LegendDot color="#FB4D6D" label="Critical hotspot" />
-          <LegendDot color="#F59E0B" label="Medium risk" />
-          <LegendDot color="#10B981" label="Cleared zone" />
-          <span className="text-ink-faint">·</span>
-          <span className="font-mono text-[0.7rem] text-ink-faint">
-            Heatmap: CIS-weighted congestion density
+      {/* ── Floating LIVE badge ───────────────────────────────── */}
+      <div className="absolute left-5 top-24 z-[1000] md:top-28">
+        <div
+          className="flex items-center gap-2 rounded-inner px-3.5 py-2 text-sm font-semibold text-white shadow-glow-rose"
+          style={{ background: "rgba(251,77,109,0.16)", border: "1px solid rgba(251,77,109,0.4)", backdropFilter: "blur(8px)" }}
+        >
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose opacity-75" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-rose" />
           </span>
+          LIVE — {KPIS.activeViolations} Active Violations
         </div>
-      </motion.div>
+      </div>
+
+      {/* ── Centered floating glass overlay ───────────────────── */}
+      <div className="pointer-events-none relative z-[900] flex h-full items-center justify-center px-5">
+        <div className="max-w-3xl text-center">
+          <motion.div variants={fadeUp} initial="hidden" animate="show" custom={0} className="mb-5 flex justify-center">
+            <Badge accent="cyan" pulse>
+              Live · Bengaluru Traffic Police Grid
+            </Badge>
+          </motion.div>
+
+          <motion.div
+            variants={fadeUp}
+            initial="hidden"
+            animate="show"
+            custom={1}
+            className="pointer-events-auto inline-block rounded-card px-7 py-8"
+            style={{
+              background: "rgba(8,12,20,0.42)",
+              border: "1px solid rgba(148,163,220,0.12)",
+              backdropFilter: "blur(10px) saturate(160%)",
+              WebkitBackdropFilter: "blur(10px) saturate(160%)",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
+            }}
+          >
+            <h1 className="font-display text-4xl leading-[1.05] text-ink-primary sm:text-5xl md:text-6xl">
+              Transform congestion into
+              <br />
+              <span className="text-gradient-violet">actionable intelligence</span>
+            </h1>
+            <p className="mx-auto mt-5 max-w-xl text-sm text-ink-body md:text-base">
+              SmartPark AI fuses YOLOv8 CCTV detection, OR-Tools fleet routing, and ML forecasting
+              into one command center — turning parking chaos across Bengaluru into a real-time
+              enforcement advantage.
+            </p>
+
+            <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+              <button
+                onClick={() => navigate("/dashboard")}
+                className="group relative inline-flex items-center gap-2 overflow-hidden rounded-inner bg-gradient-to-r from-violet to-[#6366F1] px-6 py-3 font-semibold text-white shadow-glow-violet transition-transform hover:-translate-y-0.5"
+              >
+                Launch Command Center
+                <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
+              </button>
+              <a
+                href="#features"
+                className="rounded-inner border border-strong px-6 py-3 font-semibold text-ink-body backdrop-blur transition-colors hover:text-ink-primary"
+              >
+                Explore capabilities
+              </a>
+            </div>
+
+            {/* inline stat chips */}
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+              <ChipStat icon={Activity} label="Avg CIS" value={KPIS.avgCIS} accent="#7C6AF7" />
+              <ChipStat icon={Cpu} label="AI uptime" value={`${KPIS.aiUptime}%`} accent="#22D3EE" />
+              <ChipStat icon={Radio} label="Patrols" value={`${KPIS.fleetActive}/${KPIS.fleetTotal}`} accent="#10B981" />
+            </div>
+          </motion.div>
+
+          {/* Legend */}
+          <motion.div
+            variants={fadeUp}
+            initial="hidden"
+            animate="show"
+            custom={3}
+            className="mt-6 flex flex-wrap items-center justify-center gap-4 text-xs text-ink-body"
+          >
+            <LegendDot color="#FB4D6D" label="Critical hotspot" />
+            <LegendDot color="#F59E0B" label="Medium risk" />
+            <LegendDot color="#10B981" label="Cleared zone" />
+            <span className="hidden text-ink-faint sm:inline">·</span>
+            <span className="hidden font-mono text-[0.7rem] text-ink-faint sm:inline">
+              click any marker to focus a camera
+            </span>
+          </motion.div>
+        </div>
+      </div>
     </section>
   );
 }
@@ -138,7 +163,7 @@ function ChipStat({ icon: Icon, label, value, accent }) {
       style={{ background: "rgba(14,21,37,0.78)", border: "1px solid rgba(148,163,220,0.12)" }}
     >
       <Icon size={15} style={{ color: accent }} />
-      <div className="leading-tight">
+      <div className="text-left leading-tight">
         <div className="text-[0.6rem] uppercase tracking-wider text-ink-faint">{label}</div>
         <div className="font-display text-sm" style={{ color: accent }}>
           {value}

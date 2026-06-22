@@ -35,21 +35,31 @@ export const HEAT_GRADIENT = {
 export const ROUTE_COLORS = ["#7C6AF7", "#22D3EE", "#10B981", "#F59E0B"];
 
 // Shared Recharts axis / grid styling.
+// High-contrast labels, muted axis line, no tick ticks for a cleaner read.
 export const chartAxis = {
-  stroke: "#22D3EE",
-  tick: { fill: "#94A3B8", fontSize: 11, fontFamily: "Inter" },
+  stroke: "rgba(34,211,238,0.35)",
+  tick: { fill: "#AEB9D4", fontSize: 11, fontFamily: "Inter", fontWeight: 500 },
+  tickLine: false,
+  axisLine: { stroke: "rgba(148,163,220,0.15)" },
 };
-export const chartGrid = { stroke: "rgba(148,163,220,0.08)" };
 
+// Gridlines recede visually (opacity 0.06–0.08) so data pops.
+export const chartGrid = { stroke: "rgba(148,163,220,0.07)", strokeDasharray: "3 3" };
+
+// Glass-panel tooltip matching .glass.
 export const chartTooltip = {
   contentStyle: {
-    background: "rgba(14,21,37,0.96)",
-    border: "1px solid rgba(148,163,220,0.15)",
-    borderRadius: 12,
-    backdropFilter: "blur(12px)",
+    background: "rgba(14,21,37,0.85)",
+    border: "1px solid rgba(148,163,220,0.18)",
+    borderRadius: 14,
+    backdropFilter: "blur(14px) saturate(160%)",
+    WebkitBackdropFilter: "blur(14px) saturate(160%)",
+    boxShadow: "0 8px 32px rgba(0,0,0,0.45)",
     color: "#E2E8F0",
     fontSize: 12,
+    padding: "10px 12px",
   },
-  labelStyle: { color: "#94A3B8", fontWeight: 600 },
+  labelStyle: { color: "#94A3B8", fontWeight: 600, marginBottom: 4 },
+  itemStyle: { color: "#E2E8F0", padding: 0 },
   cursor: { fill: "rgba(124,106,247,0.08)" },
 };

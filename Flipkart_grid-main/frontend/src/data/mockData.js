@@ -313,14 +313,25 @@ export const FLEET = [
   },
 ];
 
-// ── CCTV: live infraction feed ────────────────────────────────────────
+// ── CCTV: live infraction feed (mirrors the Streamlit infractions table) ─────
 export const CCTV_DETECTIONS = [
-  { id: "DET-7741", time: "13:42:08", vehicle: "HGV/Truck", conf: 97.2, type: "Double Parking", critical: true },
-  { id: "DET-7740", time: "13:41:52", vehicle: "Car", conf: 94.8, type: "No Parking", critical: false },
-  { id: "DET-7739", time: "13:41:31", vehicle: "Bus", conf: 91.5, type: "Bus-stop block", critical: true },
-  { id: "DET-7738", time: "13:41:09", vehicle: "Car", conf: 88.3, type: "Wrong Parking", critical: false },
-  { id: "DET-7737", time: "13:40:47", vehicle: "Tanker", conf: 96.1, type: "Footpath Parking", critical: true },
-  { id: "DET-7736", time: "13:40:22", vehicle: "Two-wheeler", conf: 82.6, type: "No Parking", critical: false },
+  { id: "DET-7741", time: "13:42:08", vehicle: "HGV/Truck", conf: 97.2, type: "Double Parking (Obstruction)", cis: 88.0, action: "Tow Truck Assigned", critical: true },
+  { id: "DET-7740", time: "13:41:52", vehicle: "Sedan", conf: 94.8, type: "Parked in No-Parking", cis: 42.5, action: "Alert Dispatched", critical: false },
+  { id: "DET-7739", time: "13:41:31", vehicle: "Bus", conf: 91.5, type: "Bus-stop Obstruction", cis: 79.5, action: "Tow Truck Assigned", critical: true },
+  { id: "DET-7738", time: "13:41:09", vehicle: "Sedan", conf: 88.3, type: "Wrong Side Parking", cis: 22.0, action: "Traffic Fine Issued", critical: false },
+  { id: "DET-7737", time: "13:40:47", vehicle: "Tanker", conf: 96.1, type: "Footpath Parking", cis: 71.2, action: "Tow Truck Assigned", critical: true },
+  { id: "DET-7736", time: "13:40:22", vehicle: "Two-Wheeler", conf: 82.6, type: "Sidewalk Parking", cis: 15.2, action: "Traffic Fine Issued", critical: false },
+];
+
+// Pool used to synthesize new live detections while the feed is "recording".
+export const CCTV_DETECTION_POOL = [
+  { vehicle: "HGV/Truck", type: "Double Parking (Obstruction)", cis: 88.0, action: "Tow Truck Assigned", critical: true },
+  { vehicle: "Sedan", type: "Parked in No-Parking", cis: 42.5, action: "Alert Dispatched", critical: false },
+  { vehicle: "Bus", type: "Bus-stop Obstruction", cis: 79.5, action: "Tow Truck Assigned", critical: true },
+  { vehicle: "Tanker", type: "Footpath Parking", cis: 71.2, action: "Tow Truck Assigned", critical: true },
+  { vehicle: "Two-Wheeler", type: "Sidewalk Parking", cis: 15.2, action: "Traffic Fine Issued", critical: false },
+  { vehicle: "Auto", type: "Wrong Side Parking", cis: 28.4, action: "Traffic Fine Issued", critical: false },
+  { vehicle: "Sedan", type: "Junction Blocking", cis: 64.8, action: "Alert Dispatched", critical: true },
 ];
 
 // Bounding boxes for the CCTV canvas (% coords): cars=violet, trucks=cyan, critical=rose.

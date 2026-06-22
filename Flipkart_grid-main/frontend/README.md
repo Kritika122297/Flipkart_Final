@@ -1,7 +1,7 @@
 # SmartPark AI — Frontend
 
 > **Transform congestion into actionable intelligence.**
-> A premium, glassmorphic command center for AI-powered parking enforcement in Bengaluru — the React front end for the ParkWatch / SmartPark backend.
+> A premium, glassmorphic command center for AI-powered parking enforcement in Bengaluru — the React front end for the SmartPark backend.
 
 ## Stack
 

@@ -7,6 +7,27 @@ import { HEAT_GRADIENT } from "../../lib/tokens.js";
 
 const RISK_COLOR = { critical: "#FB4D6D", medium: "#F59E0B", clear: "#10B981" };
 
+// Tile providers per MapModeToggle option.
+// NOTE: a true satellite layer (e.g. Mapbox Satellite) needs an API key; we use
+// OpenStreetMap "Street" tiles here so the map never breaks without a token.
+const TILES = {
+  Dark: {
+    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    attribution: "&copy; OpenStreetMap &copy; CARTO",
+    subdomains: "abcd",
+  },
+  Light: {
+    url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+    attribution: "&copy; OpenStreetMap &copy; CARTO",
+    subdomains: "abcd",
+  },
+  Street: {
+    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution: "&copy; OpenStreetMap contributors",
+    subdomains: "abc",
+  },
+};
+
 // ── Heat layer (leaflet.heat) ─────────────────────────────────────────
 function HeatLayer({ points = HEAT_POINTS }) {
   const map = useMap();
@@ -54,7 +75,12 @@ export default function BengaluruMap({
   zoom = 12,
   className = "",
   height = "100%",
+  mode = "Dark",
+  onSelectLocation,
+  selectedLocation,
+  borderRadius = "16px",
 }) {
+  const tile = TILES[mode] || TILES.Dark;
   return (
     <div className={className} style={{ height, width: "100%" }}>
       <MapContainer
@@ -62,13 +88,15 @@ export default function BengaluruMap({
         zoom={zoom}
         scrollWheelZoom={false}
         zoomControl={true}
-        style={{ height: "100%", width: "100%", borderRadius: "16px" }}
+        style={{ height: "100%", width: "100%", borderRadius }}
         attributionControl={true}
       >
+        {/* key forces a fresh tile layer when the user switches map mode */}
         <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          attribution='&copy; OpenStreetMap &copy; CARTO'
-          subdomains="abcd"
+          key={mode}
+          url={tile.url}
+          attribution={tile.attribution}
+          subdomains={tile.subdomains}
           maxZoom={19}
         />
 
@@ -89,17 +117,24 @@ export default function BengaluruMap({
 
         {markers.map((m, i) =>
           m.icon ? (
-            <MarkerWithIcon key={i} m={m} />
+            <MarkerWithIcon key={i} m={m} onSelectLocation={onSelectLocation} selectedLocation={selectedLocation} />
           ) : (
             <CircleMarker
               key={i}
               center={[m.lat, m.lon]}
-              radius={m.risk === "critical" ? 7 : 5}
+              radius={
+                selectedLocation && m.zone === selectedLocation
+                  ? 9
+                  : m.risk === "critical"
+                    ? 7
+                    : 5
+              }
+              eventHandlers={m.zone && onSelectLocation ? { click: () => onSelectLocation(m.zone) } : undefined}
               pathOptions={{
                 color: RISK_COLOR[m.risk] || "#7C6AF7",
                 fillColor: RISK_COLOR[m.risk] || "#7C6AF7",
-                fillOpacity: 0.55,
-                weight: 1.5,
+                fillOpacity: selectedLocation && m.zone === selectedLocation ? 0.9 : 0.55,
+                weight: selectedLocation && m.zone === selectedLocation ? 3 : 1.5,
               }}
             >
               {(m.zone || m.cis) && (
@@ -130,18 +165,20 @@ export default function BengaluruMap({
 }
 
 // Marker rendered with the animated divIcon (used for hero hotspots).
-function MarkerWithIcon({ m }) {
+function MarkerWithIcon({ m, onSelectLocation, selectedLocation }) {
   // eslint-disable-next-line no-unused-vars
   const _ = pulseIcon; // referenced for clarity
+  const selected = selectedLocation && m.zone === selectedLocation;
   return (
     <CircleMarker
       center={[m.lat, m.lon]}
-      radius={m.risk === "critical" ? 8 : 6}
+      radius={selected ? 9 : m.risk === "critical" ? 8 : 6}
+      eventHandlers={m.zone && onSelectLocation ? { click: () => onSelectLocation(m.zone) } : undefined}
       pathOptions={{
         color: RISK_COLOR[m.risk] || "#7C6AF7",
         fillColor: RISK_COLOR[m.risk] || "#7C6AF7",
-        fillOpacity: 0.6,
-        weight: 2,
+        fillOpacity: selected ? 0.9 : 0.6,
+        weight: selected ? 3 : 2,
         className: m.risk === "critical" ? "leaflet-pulse-fast" : "leaflet-pulse",
       }}
     />

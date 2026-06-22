@@ -14,6 +14,7 @@ import GlassCard from "../components/ui/GlassCard.jsx";
 import SectionHeader from "../components/ui/SectionHeader.jsx";
 import Badge from "../components/ui/Badge.jsx";
 import { chartAxis, chartGrid, chartTooltip } from "../lib/tokens.js";
+import ChartGradients, { barFill } from "../lib/chartTheme.jsx";
 import { FEATURE_IMPORTANCE, ANOMALY_LOG, DISPATCH_PLAN } from "../data/mockData.js";
 
 const SUGGESTIONS = [
@@ -147,11 +148,12 @@ export default function TacticalCommander() {
         <SectionHeader title="ML risk-model feature importance" sub="Gradient-boosted next-hour congestion model" className="mb-4" />
         <ResponsiveContainer width="100%" height={240}>
           <BarChart data={FEATURE_IMPORTANCE} layout="vertical" margin={{ left: 20 }}>
+            {ChartGradients()}
             <CartesianGrid {...chartGrid} horizontal={false} />
             <XAxis type="number" {...chartAxis} domain={[0, 0.3]} />
-            <YAxis type="category" dataKey="feature" tick={{ fill: "#94A3B8", fontSize: 11 }} width={150} />
+            <YAxis type="category" dataKey="feature" tick={{ fill: "#AEB9D4", fontSize: 11 }} width={150} tickLine={false} axisLine={{ stroke: "rgba(148,163,220,0.15)" }} />
             <Tooltip {...chartTooltip} formatter={(v) => `${(v * 100).toFixed(1)}%`} />
-            <Bar dataKey="importance" radius={[0, 5, 5, 0]} fill="#7C6AF7" />
+            <Bar dataKey="importance" radius={[0, 5, 5, 0]} fill={barFill("violet", "h")} />
           </BarChart>
         </ResponsiveContainer>
       </GlassCard>

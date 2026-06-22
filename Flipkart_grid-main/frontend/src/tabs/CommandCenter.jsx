@@ -5,11 +5,15 @@ import KpiCard from "../components/ui/KpiCard.jsx";
 import GlassCard from "../components/ui/GlassCard.jsx";
 import SectionHeader from "../components/ui/SectionHeader.jsx";
 import BengaluruMap from "../components/map/BengaluruMap.jsx";
+import MapModeToggle from "../components/map/MapModeToggle.jsx";
+import { useSelectedLocation } from "../context/LocationContext.jsx";
 import { MAP_MARKERS, HEAT_POINTS, KPIS, ZONE_STATS, PLAYBACK_FRAMES } from "../data/mockData.js";
 
 export default function CommandCenter() {
   const [hour, setHour] = useState(9);
   const [playing, setPlaying] = useState(false);
+  const [mapMode, setMapMode] = useState("Dark");
+  const { selectedLocation, setSelectedLocation } = useSelectedLocation();
 
   useEffect(() => {
     if (!playing) return;
@@ -47,8 +51,19 @@ export default function CommandCenter() {
               className="mb-0"
             />
           </div>
-          <div className="overflow-hidden rounded-[16px]">
-            <BengaluruMap markers={MAP_MARKERS} heat heatPoints={heatPoints} height="460px" />
+          <div className="relative overflow-hidden rounded-[16px]">
+            <div className="pointer-events-none absolute right-3 top-3 z-[1000]">
+              <MapModeToggle mode={mapMode} onChange={setMapMode} />
+            </div>
+            <BengaluruMap
+              markers={MAP_MARKERS}
+              heat
+              heatPoints={heatPoints}
+              height="460px"
+              mode={mapMode}
+              onSelectLocation={setSelectedLocation}
+              selectedLocation={selectedLocation}
+            />
           </div>
 
           {/* Playback slider */}
@@ -89,12 +104,17 @@ export default function CommandCenter() {
               .sort((a, b) => b.epi - a.epi)
               .slice(0, 8)
               .map((z, i) => (
-                <motion.div
+                <motion.button
                   key={z.id}
                   initial={{ opacity: 0, x: 12 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.05 }}
-                  className="flex items-center gap-3 rounded-inner border border-subtle bg-card/40 px-3 py-2.5 transition-colors hover:border-strong"
+                  onClick={() => setSelectedLocation(z.name)}
+                  className={
+                    "flex w-full items-center gap-3 rounded-inner border bg-card/40 px-3 py-2.5 text-left transition-colors hover:border-strong " +
+                    (selectedLocation === z.name ? "border-violet/60" : "border-subtle")
+                  }
+                  style={selectedLocation === z.name ? { background: "rgba(124,106,247,0.1)" } : undefined}
                 >
                   <span
                     className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-[0.62rem] font-bold text-white"
@@ -110,7 +130,7 @@ export default function CommandCenter() {
                     <div className="font-mono text-sm font-semibold text-violet">{z.epi}</div>
                     <div className="text-[0.62rem] text-ink-faint">EPI</div>
                   </div>
-                </motion.div>
+                </motion.button>
               ))}
           </div>
         </GlassCard>

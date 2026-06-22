@@ -20,6 +20,7 @@ import GlassCard from "../components/ui/GlassCard.jsx";
 import SectionHeader from "../components/ui/SectionHeader.jsx";
 import LossClock from "../components/ui/LossClock.jsx";
 import { chartAxis, chartGrid, chartTooltip } from "../lib/tokens.js";
+import ChartGradients, { barFill, areaFill } from "../lib/chartTheme.jsx";
 import {
   HOURLY,
   VIOLATION_BREAKDOWN,
@@ -55,13 +56,14 @@ export default function CongestionAnalytics() {
           <SectionHeader title="Violations by hour" sub="Rush-hour peaks · 24h window" className="mb-4" />
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={HOURLY}>
+              {ChartGradients()}
               <CartesianGrid {...chartGrid} vertical={false} />
               <XAxis dataKey="hour" {...chartAxis} interval={2} />
               <YAxis {...chartAxis} />
               <Tooltip {...chartTooltip} />
               <Bar dataKey="violations" radius={[5, 5, 0, 0]}>
                 {HOURLY.map((h, i) => (
-                  <Cell key={i} fill={h.violations > 55 ? "#FB4D6D" : h.violations > 35 ? "#F59E0B" : "#7C6AF7"} />
+                  <Cell key={i} fill={h.violations > 55 ? barFill("rose") : h.violations > 35 ? barFill("amber") : barFill("violet")} />
                 ))}
               </Bar>
             </BarChart>
@@ -73,17 +75,12 @@ export default function CongestionAnalytics() {
           <SectionHeader title="CIS trend" sub="Violet-to-transparent gradient" accent="cyan" className="mb-4" />
           <ResponsiveContainer width="100%" height={260}>
             <AreaChart data={HOURLY}>
-              <defs>
-                <linearGradient id="cisGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#7C6AF7" stopOpacity={0.6} />
-                  <stop offset="100%" stopColor="#7C6AF7" stopOpacity={0} />
-                </linearGradient>
-              </defs>
+              {ChartGradients()}
               <CartesianGrid {...chartGrid} vertical={false} />
               <XAxis dataKey="hour" {...chartAxis} interval={2} />
               <YAxis {...chartAxis} />
               <Tooltip {...chartTooltip} />
-              <Area type="monotone" dataKey="cis" stroke="#7C6AF7" strokeWidth={2.5} fill="url(#cisGrad)" />
+              <Area type="monotone" dataKey="cis" stroke="#7C6AF7" strokeWidth={2.75} fill={areaFill("violet")} activeDot={{ r: 5, fill: "#7C6AF7", stroke: "#0E1525", strokeWidth: 2 }} />
             </AreaChart>
           </ResponsiveContainer>
         </GlassCard>
@@ -108,11 +105,12 @@ export default function CongestionAnalytics() {
           <SectionHeader title="Emergency-route vulnerability" sub="Added delay to hospital corridors (min)" accent="rose" className="mb-4" />
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={EMERGENCY_VULN} layout="vertical" margin={{ left: 10 }}>
+              {ChartGradients()}
               <CartesianGrid {...chartGrid} horizontal={false} />
               <XAxis type="number" {...chartAxis} />
-              <YAxis type="category" dataKey="route" tick={{ fill: "#94A3B8", fontSize: 10 }} width={150} />
+              <YAxis type="category" dataKey="route" tick={{ fill: "#AEB9D4", fontSize: 10 }} width={150} tickLine={false} axisLine={{ stroke: "rgba(148,163,220,0.15)" }} />
               <Tooltip {...chartTooltip} />
-              <Bar dataKey="delay" radius={[0, 5, 5, 0]} fill="#FB4D6D" />
+              <Bar dataKey="delay" radius={[0, 5, 5, 0]} fill={barFill("rose", "h")} />
             </BarChart>
           </ResponsiveContainer>
         </GlassCard>
@@ -124,11 +122,12 @@ export default function CongestionAnalytics() {
           <SectionHeader title="Violations by type" sub="Severity-ranked categories" className="mb-4" />
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={VIOLATION_BREAKDOWN} layout="vertical" margin={{ left: 10 }}>
+              {ChartGradients()}
               <CartesianGrid {...chartGrid} horizontal={false} />
               <XAxis type="number" {...chartAxis} />
-              <YAxis type="category" dataKey="name" tick={{ fill: "#94A3B8", fontSize: 9.5 }} width={180} />
+              <YAxis type="category" dataKey="name" tick={{ fill: "#AEB9D4", fontSize: 9.5 }} width={180} tickLine={false} axisLine={{ stroke: "rgba(148,163,220,0.15)" }} />
               <Tooltip {...chartTooltip} />
-              <Bar dataKey="value" radius={[0, 5, 5, 0]} fill="#7C6AF7" />
+              <Bar dataKey="value" radius={[0, 5, 5, 0]} fill={barFill("violet", "h")} />
             </BarChart>
           </ResponsiveContainer>
         </GlassCard>
@@ -137,11 +136,12 @@ export default function CongestionAnalytics() {
           <SectionHeader title="Economic cost by zone" sub="₹ daily congestion cost" accent="amber" className="mb-4" />
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={ECONOMIC_BY_ZONE.slice(0, 8)}>
+              {ChartGradients()}
               <CartesianGrid {...chartGrid} vertical={false} />
-              <XAxis dataKey="name" tick={{ fill: "#94A3B8", fontSize: 9 }} angle={-25} textAnchor="end" height={60} />
+              <XAxis dataKey="name" tick={{ fill: "#AEB9D4", fontSize: 9 }} angle={-25} textAnchor="end" height={60} tickLine={false} axisLine={{ stroke: "rgba(148,163,220,0.15)" }} />
               <YAxis {...chartAxis} />
               <Tooltip {...chartTooltip} formatter={(v) => `₹${v.toLocaleString("en-IN")}`} />
-              <Bar dataKey="cost" radius={[5, 5, 0, 0]} fill="#F59E0B" />
+              <Bar dataKey="cost" radius={[5, 5, 0, 0]} fill={barFill("amber")} />
             </BarChart>
           </ResponsiveContainer>
         </GlassCard>

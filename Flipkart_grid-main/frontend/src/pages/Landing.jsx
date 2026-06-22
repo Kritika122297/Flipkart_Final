@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import ParallaxBackground from "../components/ui/ParallaxBackground.jsx";
 import TopNav from "../components/landing/TopNav.jsx";
 import Hero from "../components/landing/Hero.jsx";
+import ProblemSolution from "../components/landing/ProblemSolution.jsx";
 import FeaturesBento from "../components/landing/FeaturesBento.jsx";
 import DashboardPreview from "../components/landing/DashboardPreview.jsx";
 import AnalyticsPreview from "../components/landing/AnalyticsPreview.jsx";
@@ -20,6 +21,7 @@ export default function Landing() {
       <ParallaxBackground />
       <TopNav />
       <Hero />
+      <ProblemSolution />
       <FeaturesBento />
       <div id="preview">
         <DashboardPreview />
