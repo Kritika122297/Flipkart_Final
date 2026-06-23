@@ -25,7 +25,7 @@ export default function LiveCCTV() {
       .catch((e) => { setError(e.message || "Failed to load cameras"); setLoading(false); });
   }, []);
 
-  const [running, setRunning] = useState(false);
+  const [running, setRunning] = useState(true);
   const [fps, setFps] = useState(28.4);
   const [log, setLog] = useState([]);
   const [pushed, setPushed] = useState(0);
