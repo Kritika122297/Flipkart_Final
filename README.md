@@ -1,4 +1,4 @@
-# ParkWatch AI — Parking-Induced Congestion Intelligence
+# SmartPark AI — Parking-Induced Congestion Intelligence
 
 > **Transform congestion into actionable intelligence.**
 > An AI-powered parking-enforcement and congestion command center for Bengaluru — built for the Flipkart Grid Hackathon.
