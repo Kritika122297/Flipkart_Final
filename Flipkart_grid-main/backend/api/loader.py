@@ -1,8 +1,27 @@
 import io
 import os
-import streamlit as st
 import pandas as pd
-from data.helpers import parse_violations, get_max_severity, get_vehicle_size, compute_time_factor
+from api.helpers import parse_violations, get_max_severity, get_vehicle_size, compute_time_factor
+
+
+# Streamlit removed — lightweight no-op shim so this module stays UI-free while
+# preserving the original @st.cache_data / st.error call sites.
+class _StShim:
+    @staticmethod
+    def cache_data(*args, **kwargs):
+        def _decorator(fn):
+            return fn
+        # support both @st.cache_data and @st.cache_data(...)
+        if args and callable(args[0]):
+            return args[0]
+        return _decorator
+
+    @staticmethod
+    def error(*args, **kwargs):
+        return None
+
+
+st = _StShim()
 
 DEFAULT_PATHS = [
     os.path.join(os.path.dirname(__file__), "..", "..", "jan to may police violation_anonymized791b166.csv"),

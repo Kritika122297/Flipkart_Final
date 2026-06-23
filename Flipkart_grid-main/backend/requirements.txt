@@ -1,12 +1,27 @@
-streamlit==1.45.1
+# ── ParkWatch AI — headless FastAPI backend (run: uvicorn api.main:app) ──
+# Streamlit + its UI deps (plotly/folium/streamlit-folium/openpyxl) were removed
+# when the Streamlit frontend was retired; this backend is now UI-free.
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
 pandas>=2.0.0
 numpy>=1.24.0
-plotly>=5.18.0
-folium>=0.15.0
-streamlit-folium>=0.22.0
 scikit-learn>=1.3.0
 scipy>=1.10.0
 groq>=0.9.0
-openpyxl>=3.1.0
 python-dotenv>=1.0.0
 ortools>=9.7.0
+
+# ── Production agent stack (OPTIONAL — all modules degrade gracefully) ──
+# Install to light up: PostgreSQL persistence, Chroma RAG, LangGraph agent,
+# Prophet/XGBoost forecasting, fuzzy ETL header matching.
+# rapidfuzz>=3.6.0            # ETL fuzzy header mapping (else stdlib difflib)
+# SQLAlchemy>=2.0.0           # relational persistence (needs DATABASE_URL)
+# psycopg2-binary>=2.9.9      # PostgreSQL driver (Supabase/Neon)
+# chromadb>=0.5.0             # vector store for RAG
+# sentence-transformers>=2.7  # embeddings for Chroma
+# prophet>=1.1.5             # seasonal forecasting (else seasonal-naive)
+# xgboost>=2.0.0             # gradient-boosted forecasting alternative
+# langchain>=0.2.0           # agent tool orchestration
+# langchain-groq>=0.1.0      # Groq LLM binding
+# langgraph>=0.1.0           # stateful ReAct graph
