@@ -49,8 +49,9 @@ try:
 except Exception:  # noqa: BLE001
     pass
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -470,6 +471,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    import traceback
+    traceback.print_exc()
+    return JSONResponse(status_code=500, content={"detail": str(exc) or "Internal server error"})
 
 
 @app.get("/api/health")
@@ -903,6 +910,17 @@ def _frame_to_rows(df: pd.DataFrame, limit: int = 24) -> list[dict]:
 @app.get("/api/data/preview")
 def data_preview(_: dict = Depends(require_auth)):
     """Default table + quality summary for the bundled dataset."""
+    try:
+        dt = pd.to_datetime(DF["created_datetime"], utc=True)
+        date_range = f"{dt.min():%d %b %Y} – {dt.max():%d %b %Y}"
+    except Exception:
+        date_range = "—"
+    try:
+        stations = int(DF["police_station"].nunique())
+        locations = int(DF["location"].nunique())
+    except Exception:
+        stations = 0
+        locations = 0
     return {
         "rows": _frame_to_rows(DF.head(500)),
         "quality": {
@@ -910,9 +928,9 @@ def data_preview(_: dict = Depends(require_auth)):
             "cleanRows": TOTAL_VIOLATIONS,
             "droppedDatetime": 142,
             "droppedCoords": 115,
-            "dateRange": f"{DF['created_datetime'].min():%d %b %Y} – {DF['created_datetime'].max():%d %b %Y}",
-            "stations": int(DF["police_station"].nunique()),
-            "locations": int(DF["location"].nunique()),
+            "dateRange": date_range,
+            "stations": stations,
+            "locations": locations,
         },
     }
 
@@ -1022,9 +1040,21 @@ def data_clean(body: CleanBody, _: dict = Depends(require_auth)):
 
 @app.get("/api/cctv/cameras")
 def cctv_cameras(_: dict = Depends(require_auth)):
+    import datetime as _dt
+
+    # Use the hardcoded ZONES list so zone names match the frontend's LocationContext
+    # (selectedLocation values come from mockData.js ZONES which match ZONES here).
+    zone_cis_map = {z["name"]: z.get("avgCis", 0) for z in ZONE_STATS}
     cameras = [
-        {"zone": z["name"], "cam": (i % 12) + 1, "label": f"{z['name']} Rd · Cam {(i % 12) + 1}", "cis": z["avgCis"], "lat": z["lat"], "lon": z["lon"]}
-        for i, z in enumerate(ZONE_STATS)
+        {
+            "zone": z["name"],
+            "cam": (i % 12) + 1,
+            "label": f"{z['name']} Main Rd - Cam {(i % 12) + 1}",
+            "cis": zone_cis_map.get(z["name"], round(3.0 + i * 0.7, 1)),
+            "lat": z["lat"],
+            "lon": z["lon"],
+        }
+        for i, z in enumerate(ZONES)
     ]
     boxes = [
         {"label": "Car", "conf": 96, "status": "VIOLATION", "color": "#FB4D6D", "ok": False, "x": 9, "y": 44, "w": 19, "h": 22},
@@ -1039,13 +1069,16 @@ def cctv_cameras(_: dict = Depends(require_auth)):
         {"vehicle": "Two-Wheeler", "type": "Sidewalk Parking", "cis": 15.2, "action": "Traffic Fine Issued", "critical": False},
         {"vehicle": "Auto", "type": "Wrong Side Parking", "cis": 28.4, "action": "Traffic Fine Issued", "critical": False},
     ]
+    # Seed with real current timestamps so the log doesn't look stale on load.
+    now = _dt.datetime.now()
     detections = []
     for i in range(6):
         p = pool[i % len(pool)]
+        t = now - _dt.timedelta(seconds=i * 67)
         detections.append(
             {
                 "id": f"DET-{7741 - i}",
-                "time": f"13:{42 - i:02d}:{int(_RNG.integers(0, 60)):02d}",
+                "time": t.strftime("%H:%M:%S"),
                 "vehicle": p["vehicle"],
                 "conf": round(float(_RNG.uniform(82, 98)), 1),
                 "type": p["type"],
@@ -1080,7 +1113,7 @@ def cctv_infraction(body: InfractionBody, _: dict = Depends(require_auth)):
     active violations cache, and re-derive all analytics so telemetry / maps /
     OR-Tools routes immediately include it."""
     global DF
-    now = pd.Timestamp.now()
+    now = pd.Timestamp.now(tz="UTC")  # must match tz-aware created_datetime in real dataset
     sev = get_max_severity(parse_violations(body.violation_type))
     size = get_vehicle_size(body.vehicle_type)
     is_weekend = 1 if now.dayofweek >= 5 else 0
@@ -1135,9 +1168,15 @@ def cctv_infraction(body: InfractionBody, _: dict = Depends(require_auth)):
             ml.train_all(DF, DATASET_VERSION)
         threading.Thread(target=_bg_retrain, daemon=True).start()
 
+    action = (
+        "Tow Truck Assigned" if cis > 60
+        else "Alert Dispatched" if cis > 30
+        else "Traffic Fine Issued"
+    )
     return {
         "appended": True,
         "cis": cis,
+        "action": action,
         "station": station,
         "totalViolations": TOTAL_VIOLATIONS,
         "avgCIS": AVG_CIS,
