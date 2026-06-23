@@ -79,6 +79,8 @@ export default function BengaluruMap({
   onSelectLocation,
   selectedLocation,
   borderRadius = "16px",
+  animatedRoutes = false,
+  warnings = [],
 }) {
   const tile = TILES[mode] || TILES.Dark;
   return (
@@ -106,13 +108,24 @@ export default function BengaluruMap({
           <Polyline
             key={i}
             positions={r.path}
-            pathOptions={{ color: r.color, weight: 4, opacity: 0.85, lineCap: "round" }}
+            pathOptions={{
+              color: r.color,
+              weight: 4,
+              opacity: 0.85,
+              lineCap: "round",
+              className: animatedRoutes ? "route-flow" : undefined,
+            }}
           />
         ))}
 
         {/* radar ping rings via animated CircleMarker DOM not native — use divIcon markers */}
         {radar.map((p, i) => (
           <RadarRing key={`r-${i}`} lat={p.lat} lon={p.lon} color={p.color || "#7C6AF7"} />
+        ))}
+
+        {/* Emerging-risk zones (Model 3) — glowing yellow warning circles */}
+        {warnings.map((w, i) => (
+          <EmergingZone key={`w-${i}`} lat={w.lat} lon={w.lon} growth={w.growth} />
         ))}
 
         {markers.map((m, i) =>
@@ -182,6 +195,30 @@ function MarkerWithIcon({ m, onSelectLocation, selectedLocation }) {
         className: m.risk === "critical" ? "leaflet-pulse-fast" : "leaflet-pulse",
       }}
     />
+  );
+}
+
+// Emerging-risk zone — yellow pulsing ring + dot + "Emerging Risk Zone" popup.
+function EmergingZone({ lat, lon, growth }) {
+  const YELLOW = "#F5D90A";
+  return (
+    <>
+      <RadarRing lat={lat} lon={lon} color={YELLOW} />
+      <CircleMarker
+        center={[lat, lon]}
+        radius={10}
+        pathOptions={{ color: YELLOW, fillColor: YELLOW, fillOpacity: 0.25, weight: 2 }}
+      >
+        <Popup>
+          <div style={{ minWidth: 150 }}>
+            <div style={{ fontWeight: 700, color: YELLOW, marginBottom: 4 }}>⚠️ Emerging Risk Zone</div>
+            <div style={{ fontSize: 12, color: "#94A3B8" }}>
+              Density {growth > 0 ? `+${growth}%` : "elevated"} week-over-week
+            </div>
+          </div>
+        </Popup>
+      </CircleMarker>
+    </>
   );
 }
 

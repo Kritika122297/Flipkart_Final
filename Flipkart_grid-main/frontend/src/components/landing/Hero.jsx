@@ -6,7 +6,10 @@ import BengaluruMap from "../map/BengaluruMap.jsx";
 import MapModeToggle from "../map/MapModeToggle.jsx";
 import TrafficParticles from "../map/TrafficParticles.jsx";
 import Badge from "../ui/Badge.jsx";
+import LoginModal from "../auth/LoginModal.jsx";
 import { useSelectedLocation } from "../../context/LocationContext.jsx";
+import { useAuth } from "../../context/AuthContext.jsx";
+import { useFetch, endpoints } from "../../lib/api.js";
 import { MAP_MARKERS, HEAT_POINTS, ZONE_STATS, KPIS } from "../../data/mockData.js";
 
 const radar = ZONE_STATS.filter((z) => z.risk === "critical")
@@ -24,8 +27,14 @@ const fadeUp = {
 
 export default function Hero() {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const [mapMode, setMapMode] = useState("Dark");
+  const [loginOpen, setLoginOpen] = useState(false);
   const { selectedLocation, setSelectedLocation } = useSelectedLocation();
+  // Emerging-risk zones (public endpoint) — yellow warning circles on the hero map.
+  const emerging = useFetch(endpoints.emergingHotspots, []);
+
+  const launch = () => (isAuthenticated ? navigate("/dashboard") : setLoginOpen(true));
 
   return (
     <section className="relative h-[100svh] min-h-[640px] w-full overflow-hidden">
@@ -41,6 +50,7 @@ export default function Hero() {
           mode={mapMode}
           onSelectLocation={setSelectedLocation}
           selectedLocation={selectedLocation}
+          warnings={emerging.data?.zones ?? []}
           borderRadius="0"
         />
       </div>
@@ -112,7 +122,7 @@ export default function Hero() {
 
             <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
               <button
-                onClick={() => navigate("/dashboard")}
+                onClick={launch}
                 className="group relative inline-flex items-center gap-2 overflow-hidden rounded-inner bg-gradient-to-r from-violet to-[#6366F1] px-6 py-3 font-semibold text-white shadow-glow-violet transition-transform hover:-translate-y-0.5"
               >
                 Launch Command Center
@@ -152,6 +162,8 @@ export default function Hero() {
           </motion.div>
         </div>
       </div>
+
+      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
     </section>
   );
 }

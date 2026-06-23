@@ -1,70 +1,84 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Camera,
-  Radio,
-  ChevronDown,
-  Play,
-  Square,
-  Info,
-  ShieldAlert,
-} from "lucide-react";
+import { Camera, MapPin, Play, Square, Info, ShieldAlert, Zap, Loader2, CheckCircle2 } from "lucide-react";
 import GlassCard from "../components/ui/GlassCard.jsx";
 import SectionHeader from "../components/ui/SectionHeader.jsx";
-import { useSelectedLocation, cameraLabelFor } from "../context/LocationContext.jsx";
-import { CCTV_DETECTIONS, CCTV_DETECTION_POOL, ZONES } from "../data/mockData.js";
-
-// Camera list built from the Bengaluru zones (like Streamlit builds it from the
-// dataframe locations). The select syncs with the global selected-location state.
-const CAMERAS = ZONES.map((z) => ({ zone: z.name, ...cameraLabelFor(z.name) }));
-
-// Detection boxes positioned within the lane view (mirrors the Streamlit feed):
-// Car + Truck sit inside the NO PARKING ZONE, the moving vehicle is in a clear lane.
-const FEED_BOXES = [
-  { label: "Car", conf: 96, status: "VIOLATION", color: "#FB4D6D", ok: false, x: 9, y: 44, w: 19, h: 22 },
-  { label: "Truck", conf: 89, status: "VIOLATION", color: "#FB4D6D", ok: false, x: 13, y: 70, w: 24, h: 22 },
-  { label: "Moving", conf: 99, status: "OK", color: "#10B981", ok: true, x: 56, y: 19, w: 15, h: 17 },
-];
+import { Loading, ErrorState } from "../components/ui/AsyncState.jsx";
+import { useSelectedLocation } from "../context/LocationContext.jsx";
+import { useFetch, useLazyRequest, endpoints } from "../lib/api.js";
 
 const nowClock = () => new Date().toLocaleTimeString("en-GB");
 
 export default function LiveCCTV() {
-  // Dropdown removed (Task A): the active feed follows the globally selected
-  // location, set by clicking any map marker or hotspot/leaderboard row.
-  const { selectedLocation, setSelectedLocation } = useSelectedLocation();
-  const cam = cameraLabelFor(selectedLocation);
+  // The active feed follows the globally selected location (set by map clicks or
+  // hotspot rows on other tabs). Read-only here — no local camera dropdown.
+  const { selectedLocation } = useSelectedLocation();
+  const { data, loading, error, refetch } = useFetch(endpoints.cctvCameras, []);
 
   const [running, setRunning] = useState(false);
   const [fps, setFps] = useState(28.4);
-  const [log, setLog] = useState(CCTV_DETECTIONS);
+  const [log, setLog] = useState([]);
+  const [pushed, setPushed] = useState(0); // # detections posted to the backend
   const idRef = useRef(7742);
 
-  // Live behaviour while "recording": flicker FPS + append new infractions.
+  // "Recalculate Dispatch VRP" action.
+  const { run: runVrp, data: vrp, loading: vrpLoading } = useLazyRequest(endpoints.dispatcherVrp);
+
+  // Seed the infraction log when camera data arrives.
   useEffect(() => {
-    if (!running) return;
+    if (data?.detections) setLog(data.detections);
+  }, [data]);
+
+  // Live behaviour while "recording": flicker FPS, append infractions, AND post
+  // each new detection to the backend so maps/telemetry/routes include it.
+  useEffect(() => {
+    if (!running || !data?.pool) return;
+    const camNow = data.cameras.find((c) => c.zone === selectedLocation) ?? data.cameras[0];
     const fpsTimer = setInterval(() => setFps(+(26 + Math.random() * 6).toFixed(1)), 1200);
     const logTimer = setInterval(() => {
-      const pick = CCTV_DETECTION_POOL[Math.floor(Math.random() * CCTV_DETECTION_POOL.length)];
-      const entry = {
-        ...pick,
-        id: `DET-${idRef.current++}`,
-        time: nowClock(),
-        conf: +(80 + Math.random() * 19).toFixed(1),
-      };
-      setLog((l) => [entry, ...l].slice(0, 14));
+      const pool = data.pool;
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      const conf = +(80 + Math.random() * 19).toFixed(1);
+      setLog((l) => [{ ...pick, id: `DET-${idRef.current++}`, time: nowClock(), conf }, ...l].slice(0, 14));
+
+      // ── CCTV → backend feedback loop ──
+      if (camNow) {
+        endpoints
+          .cctvInfraction({
+            latitude: camNow.lat + (Math.random() - 0.5) * 0.008,
+            longitude: camNow.lon + (Math.random() - 0.5) * 0.008,
+            vehicle_type: pick.vehicle,
+            violation_type: pick.type,
+            location: camNow.label,
+            confidence: conf,
+          })
+          .then(() => {
+            setPushed((p) => p + 1);
+            // Notify every mounted tab to refetch with the new violation included.
+            window.dispatchEvent(new CustomEvent("parkwatch:dataset-changed"));
+          })
+          .catch(() => {});
+      }
     }, 3200);
     return () => {
       clearInterval(fpsTimer);
       clearInterval(logTimer);
     };
-  }, [running]);
+  }, [running, data, selectedLocation]);
+
+  if (loading) return <Loading label="Connecting to camera grid…" height={420} />;
+  if (error) return <ErrorState error={error} onRetry={refetch} height={420} />;
+
+  const cameras = data.cameras;
+  const boxes = data.boxes;
+  const cam = cameras.find((c) => c.zone === selectedLocation) ?? cameras[0] ?? { label: selectedLocation, zone: selectedLocation, cam: 1 };
 
   return (
     <div className="space-y-5">
-      {/* Concept banner (mirrors the Streamlit st.info block) */}
+      {/* Concept banner */}
       <div
-        className="flex items-start gap-3 rounded-card border-l-2 px-4 py-3.5"
-        style={{ background: "rgba(34,211,238,0.07)", borderColor: "#22D3EE", border: "1px solid rgba(34,211,238,0.2)", borderLeft: "3px solid #22D3EE" }}
+        className="flex items-start gap-3 rounded-card px-4 py-3.5"
+        style={{ background: "rgba(34,211,238,0.07)", border: "1px solid rgba(34,211,238,0.2)", borderLeft: "3px solid #22D3EE" }}
       >
         <Info size={18} className="mt-0.5 shrink-0 text-cyan" />
         <p className="text-sm leading-relaxed text-ink-body">
@@ -77,34 +91,19 @@ export default function LiveCCTV() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
-        {/* ── Left control / spec panel ─────────────────────────── */}
+        {/* Left control / spec panel */}
         <GlassCard className="space-y-4 p-5" accentBar="from-rose to-amber" hover={false}>
           <SectionHeader title="Edge node" sub="YOLOv8 inference control" icon={Camera} accent="rose" className="mb-0" />
 
-          {/* Camera selector (mirrors the Streamlit selectbox) — synced to the
-              global location so map clicks on other tabs switch this feed too. */}
-          <div>
-            <label className="label-caps mb-1.5 flex items-center gap-1.5">
-              <Radio size={12} className="text-violet" /> Select camera feed
-            </label>
-            <div className="relative">
-              <select
-                value={selectedLocation}
-                onChange={(e) => setSelectedLocation(e.target.value)}
-                className="w-full appearance-none rounded-inner border border-subtle bg-card/60 px-3 py-2.5 pr-9 text-sm text-ink-primary outline-none transition-colors focus:border-violet focus:ring-2 focus:ring-violet/30"
-              >
-                {CAMERAS.map((c) => (
-                  <option key={c.zone} value={c.zone} style={{ background: "#0E1525", color: "#E2E8F0" }}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint" />
+          {/* Read-only active camera — bound to the global LocationContext */}
+          <div className="rounded-inner border border-subtle bg-card/50 px-3 py-2.5">
+            <div className="label-caps mb-1 flex items-center gap-1.5">
+              <MapPin size={12} className="text-violet" /> Active camera feed
             </div>
-            <p className="mt-1.5 text-[0.68rem] text-ink-faint">Synced across tabs · click any map marker to switch</p>
+            <div className="text-sm font-semibold text-ink-primary">{cam.label}</div>
+            <div className="font-mono text-[0.68rem] text-ink-faint">Synced from map · click any marker to switch</div>
           </div>
 
-          {/* Start / Stop button */}
           <button
             onClick={() => setRunning((r) => !r)}
             className="flex w-full items-center justify-center gap-2 rounded-inner py-2.5 font-semibold text-white transition-transform hover:-translate-y-0.5"
@@ -118,7 +117,27 @@ export default function LiveCCTV() {
             {running ? "Stop Analysis" : "Start Live Edge Analysis"}
           </button>
 
-          {/* Model spec card (mirrors Streamlit Model / Compute / Pipeline) */}
+          {/* Feedback-loop status + manual VRP recompute */}
+          {pushed > 0 && (
+            <div className="flex items-center gap-1.5 rounded-inner px-3 py-2 text-xs" style={{ background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.3)", color: "#6EE7B7" }}>
+              <CheckCircle2 size={13} /> {pushed} detection{pushed > 1 ? "s" : ""} pushed to live dataset
+            </div>
+          )}
+          <button
+            onClick={() => runVrp(4).catch(() => {})}
+            disabled={vrpLoading}
+            className="flex w-full items-center justify-center gap-2 rounded-inner border border-strong py-2.5 text-sm font-semibold text-amber transition-colors hover:bg-amber/10 disabled:opacity-50"
+          >
+            {vrpLoading ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
+            ⚡ Recalculate Dispatch VRP
+          </button>
+          {vrp && (
+            <div className="rounded-inner border border-subtle bg-card/40 p-2.5 text-xs text-ink-body">
+              Routes recomputed: <span className="font-semibold text-emerald">{vrp.trucks.length} trucks</span> ·{" "}
+              {vrp.totalDistance} km · max ETA {vrp.maxEta} min (includes CCTV detections)
+            </div>
+          )}
+
           <div className="space-y-3 rounded-inner border border-subtle bg-card/40 p-3.5">
             <Spec label="Model" value="YOLOv8-Nano (Edge)" color="#22D3EE" />
             <Spec label="Compute" value="NVIDIA Jetson Orin" color="#7C6AF7" />
@@ -126,13 +145,12 @@ export default function LiveCCTV() {
           </div>
         </GlassCard>
 
-        {/* ── Feed area ─────────────────────────────────────────── */}
+        {/* Feed area */}
         <GlassCard className="p-4 xl:col-span-3" accentBar="from-rose to-amber" hover={false}>
           <div className="mb-3">
             <SectionHeader title="YOLOv8 vision pipeline" sub={`${cam.label} · Edge inference`} icon={Camera} accent="rose" className="mb-0" />
           </div>
 
-          {/* Feed canvas OR offline placeholder */}
           <AnimatePresence mode="wait">
             {running ? (
               <motion.div
@@ -143,31 +161,18 @@ export default function LiveCCTV() {
                 className="relative aspect-video w-full overflow-hidden rounded-inner"
                 style={{ background: "linear-gradient(135deg,#12101f,#0b0d16)", border: "1px solid rgba(99,91,255,0.5)", boxShadow: "0 0 30px rgba(79,70,229,0.25)" }}
               >
-                {/* asphalt texture */}
                 <div className="absolute inset-0 opacity-70" style={{ backgroundImage: "radial-gradient(120% 90% at 30% 40%, rgba(251,77,109,0.05), transparent 60%), linear-gradient(180deg, #0d0f18 0%, #12141f 100%)" }} />
 
-                {/* lane divider lines (dashed verticals → 3 lanes) */}
+                {/* lane divider lines */}
                 <div className="absolute bottom-0 top-0" style={{ left: "48%", borderLeft: "2px dashed rgba(148,163,220,0.4)" }} />
                 <div className="absolute bottom-0 top-0" style={{ left: "74%", borderLeft: "2px dashed rgba(148,163,220,0.4)" }} />
 
-                {/* NO PARKING ZONE — dashed parallelogram in the left lane */}
+                {/* NO PARKING ZONE parallelogram */}
                 <div
                   className="absolute"
-                  style={{
-                    left: "6%",
-                    top: "12%",
-                    width: "32%",
-                    height: "76%",
-                    transform: "skewX(-11deg)",
-                    border: "2px dashed rgba(251,77,109,0.6)",
-                    borderRadius: 8,
-                    background: "linear-gradient(180deg, rgba(251,77,109,0.10), rgba(251,77,109,0.02))",
-                  }}
+                  style={{ left: "6%", top: "12%", width: "32%", height: "76%", transform: "skewX(-11deg)", border: "2px dashed rgba(251,77,109,0.6)", borderRadius: 8, background: "linear-gradient(180deg, rgba(251,77,109,0.10), rgba(251,77,109,0.02))" }}
                 />
-                <span
-                  className="absolute font-bold uppercase tracking-wider"
-                  style={{ left: "10%", top: "16%", color: "#FB4D6D", fontSize: "0.8rem", letterSpacing: "0.08em", textShadow: "0 0 10px rgba(251,77,109,0.5)" }}
-                >
+                <span className="absolute font-bold uppercase tracking-wider" style={{ left: "10%", top: "16%", color: "#FB4D6D", fontSize: "0.8rem", letterSpacing: "0.08em", textShadow: "0 0 10px rgba(251,77,109,0.5)" }}>
                   No Parking Zone
                 </span>
 
@@ -179,19 +184,17 @@ export default function LiveCCTV() {
                   transition={{ duration: 3.5, repeat: Infinity, ease: "linear" }}
                 />
 
-                {/* LIVE REC badge (top-left, inside feed) */}
+                {/* LIVE REC + FPS */}
                 <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded px-2 py-1" style={{ background: "rgba(251,77,109,0.92)" }}>
                   <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
                   <span className="text-[0.62rem] font-black uppercase tracking-widest text-white">Live Rec</span>
                 </div>
-
-                {/* FPS + camera (top-right, inside feed) */}
                 <div className="absolute right-3 top-3 rounded px-2 py-1 font-mono text-[0.62rem] text-emerald" style={{ background: "rgba(0,0,0,0.6)", border: "1px solid rgba(148,163,220,0.15)" }}>
                   FPS: {fps} | {cam.label}
                 </div>
 
-                {/* detection boxes positioned within lanes */}
-                {FEED_BOXES.map((b, i) => (
+                {/* detection boxes */}
+                {boxes.map((b, i) => (
                   <motion.div
                     key={b.label}
                     initial={{ opacity: 0, scale: 0.9 }}
@@ -235,7 +238,7 @@ export default function LiveCCTV() {
         </GlassCard>
       </div>
 
-      {/* ── Live infraction log (table, mirrors the Streamlit dataframe) ─────── */}
+      {/* Live infraction log table */}
       <GlassCard className="p-5" accentBar="from-rose to-violet" hover={false}>
         <div className="mb-4 flex items-center justify-between">
           <SectionHeader title="Live infractions log" sub="Auto-generated challans · appended in real time" icon={ShieldAlert} accent="rose" className="mb-0" />
@@ -269,7 +272,7 @@ export default function LiveCCTV() {
                     <td className="px-3 py-2 text-ink-primary">{d.type}</td>
                     <td className="px-3 py-2">
                       <span className="font-mono font-semibold" style={{ color: d.cis > 60 ? "#FB4D6D" : d.cis > 30 ? "#F59E0B" : "#10B981" }}>
-                        {d.cis.toFixed(1)}
+                        {Number(d.cis).toFixed(1)}
                       </span>
                     </td>
                     <td className="px-3 py-2">

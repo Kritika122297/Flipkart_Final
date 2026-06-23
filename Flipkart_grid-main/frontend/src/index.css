@@ -221,3 +221,110 @@ input[type="number"]::-webkit-outer-spin-button {
   background: rgba(124, 106, 247, 0.35);
   color: #fff;
 }
+
+/* ── Animated fleet route lines (flow from depot outward) ── */
+.route-flow {
+  stroke-dasharray: 12 9;
+  animation: route-flow-dash 1s linear infinite;
+}
+@keyframes route-flow-dash {
+  to { stroke-dashoffset: -21; }
+}
+
+/* ── Faint city-grid backdrop (bento section) ────────────── */
+.city-grid {
+  background-image:
+    linear-gradient(rgba(148, 163, 220, 0.6) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 220, 0.6) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(circle at 50% 40%, black, transparent 75%);
+  -webkit-mask-image: radial-gradient(circle at 50% 40%, black, transparent 75%);
+}
+
+/* ── Rendered markdown inside chat bubbles ───────────────── */
+.md-body {
+  font-family: "Inter", sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: #CFFAFE;
+}
+.md-body > :first-child { margin-top: 0; }
+.md-body > :last-child { margin-bottom: 0; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4 {
+  font-family: "Space Grotesk", "Inter", sans-serif;
+  color: #E2E8F0;
+  font-weight: 700;
+  margin: 0.7em 0 0.35em;
+  line-height: 1.25;
+}
+.md-body h1 { font-size: 1.05rem; }
+.md-body h2 { font-size: 1rem; }
+.md-body h3 { font-size: 0.92rem; }
+.md-body p { margin: 0.4em 0; }
+.md-body strong { color: #fff; font-weight: 700; }
+.md-body em { color: #A9B4CC; }
+.md-body a { color: #7C6AF7; text-decoration: underline; }
+.md-body ul, .md-body ol { margin: 0.4em 0; padding-left: 1.2em; }
+.md-body li { margin: 0.2em 0; }
+.md-body ul li::marker { color: #22D3EE; }
+.md-body ol li::marker { color: #7C6AF7; }
+.md-body code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.8em;
+  background: rgba(124, 106, 247, 0.14);
+  color: #C4B5FD;
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+.md-body pre {
+  background: rgba(8, 12, 20, 0.7);
+  border: 1px solid rgba(148, 163, 220, 0.12);
+  border-radius: 10px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.md-body pre code { background: none; padding: 0; color: #CBD5E1; }
+.md-body blockquote {
+  border-left: 3px solid rgba(124, 106, 247, 0.5);
+  margin: 0.5em 0;
+  padding: 0.1em 0 0.1em 0.8em;
+  color: #94A3B8;
+}
+.md-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.82rem;
+}
+.md-body th, .md-body td {
+  border: 1px solid rgba(148, 163, 220, 0.14);
+  padding: 6px 10px;
+  text-align: left;
+}
+.md-body th {
+  background: rgba(124, 106, 247, 0.14);
+  color: #E2E8F0;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+.md-body tr:nth-child(even) td { background: rgba(19, 29, 48, 0.4); }
+
+/* ── Bento card base ─────────────────────────────────────── */
+.bento-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  background: rgba(13, 21, 37, 0.72);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(148, 163, 220, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+.bento-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(148, 163, 220, 0.18);
+}

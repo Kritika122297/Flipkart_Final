@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { LogOut, LogIn } from "lucide-react";
+import { useAuth } from "../../context/AuthContext.jsx";
+import LoginModal from "../auth/LoginModal.jsx";
 
 export default function TopNav() {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
+  const [loginOpen, setLoginOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -34,13 +39,43 @@ export default function TopNav() {
           <a href="#impact" className="transition-colors hover:text-ink-primary">Impact</a>
           <a href="#preview" className="transition-colors hover:text-ink-primary">Preview</a>
         </nav>
-        <button
-          onClick={() => navigate("/dashboard")}
-          className="rounded-inner border border-strong px-4 py-2 text-sm font-semibold text-ink-primary transition-colors hover:border-violet/50 hover:text-violet"
-        >
-          Open Dashboard
-        </button>
+        <div className="flex items-center gap-2.5">
+          {user ? (
+            <>
+              <div className="hidden items-center gap-2 rounded-inner border border-subtle px-3 py-1.5 sm:flex">
+                <span className="grid h-6 w-6 place-items-center rounded-full bg-gradient-to-br from-violet to-cyan text-[0.6rem] font-bold uppercase text-white">
+                  {user.username.slice(0, 2)}
+                </span>
+                <span className="text-xs text-ink-body">
+                  {user.name} · <span className="font-semibold capitalize text-violet">{user.role}</span>
+                </span>
+              </div>
+              <button
+                onClick={() => navigate("/dashboard")}
+                className="rounded-inner bg-gradient-to-r from-violet to-[#6366F1] px-4 py-2 text-sm font-semibold text-white shadow-glow-violet"
+              >
+                Open Dashboard
+              </button>
+              <button
+                onClick={logout}
+                title="Log out"
+                className="grid h-9 w-9 place-items-center rounded-inner border border-subtle text-ink-body transition-colors hover:border-rose/50 hover:text-rose"
+              >
+                <LogOut size={16} />
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setLoginOpen(true)}
+              className="flex items-center gap-2 rounded-inner border border-strong px-4 py-2 text-sm font-semibold text-ink-primary transition-colors hover:border-violet/50 hover:text-violet"
+            >
+              <LogIn size={15} /> Sign in
+            </button>
+          )}
+        </div>
       </div>
+
+      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
     </motion.header>
   );
 }

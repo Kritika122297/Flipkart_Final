@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   LineChart,
@@ -9,23 +9,51 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { TrendingDown, Users, Crosshair } from "lucide-react";
+import { TrendingDown, Users, Crosshair, Clock, Loader2, Rocket, Check } from "lucide-react";
 import GlassCard from "../components/ui/GlassCard.jsx";
 import SectionHeader from "../components/ui/SectionHeader.jsx";
-import CountUp from "../components/ui/CountUp.jsx";
+import { Loading, ErrorState } from "../components/ui/AsyncState.jsx";
 import { chartAxis, chartGrid, chartTooltip } from "../lib/tokens.js";
-import { simulateDispatch, EPI_RANKING, KPIS } from "../data/mockData.js";
+import { useFetch, useLazyRequest, endpoints } from "../lib/api.js";
+import { useConfig } from "../context/ConfigContext.jsx";
 
 const RANK_COLOR = ["#FB4D6D", "#F59E0B", "#7C6AF7"];
 
 export default function IntelligentDispatch() {
-  const [teams, setTeams] = useState(5);
-  const [effectiveness, setEffectiveness] = useState(70);
+  const { simConfig, setSimConfig } = useConfig();
+  const [teams, setTeams] = useState(simConfig.fleetSize ?? 5);
+  const [effectiveness, setEffectiveness] = useState(simConfig.effectiveness ?? 70);
+  const [priority, setPriority] = useState(simConfig.priority ?? 50);
+  const [savedAt, setSavedAt] = useState(false);
 
-  const curve = useMemo(() => simulateDispatch(teams, effectiveness), [teams, effectiveness]);
-  const finalCis = curve[curve.length - 1].cis;
-  const reduction = Math.round(((KPIS.avgCIS - finalCis) / KPIS.avgCIS) * 1000) / 10;
-  const coverage = Math.min(98, Math.round(teams * effectiveness * 0.26));
+  const applyConfig = () => {
+    setSimConfig({ fleetSize: teams, effectiveness, priority });
+    setSavedAt(true);
+    setTimeout(() => setSavedAt(false), 2200);
+  };
+
+  // EPI leaderboard (load once).
+  const { data: lb, loading: lbLoading, error: lbError, refetch } = useFetch(
+    endpoints.simulatorLeaderboard,
+    []
+  );
+
+  // Simulation — POST params; debounced so dragging sliders doesn't flood the API.
+  const { run: runSim, data: sim, loading: simLoading } = useLazyRequest(endpoints.simulatorEvaluate);
+  useEffect(() => {
+    const id = setTimeout(() => {
+      runSim({ fleet_size: teams, response_target: effectiveness, priority_weight: priority }).catch(() => {});
+    }, 250);
+    return () => clearTimeout(id);
+  }, [teams, effectiveness, priority, runSim]);
+
+  if (lbLoading) return <Loading label="Loading dispatch intelligence…" height={420} />;
+  if (lbError) return <ErrorState error={lbError} onRetry={refetch} height={420} />;
+
+  const ranking = lb.ranking;
+  const curve = sim?.curve ?? [];
+  const reduction = sim?.reduction ?? 0;
+  const coverage = sim?.coverage ?? 0;
 
   return (
     <div className="space-y-6">
@@ -34,48 +62,55 @@ export default function IntelligentDispatch() {
         <GlassCard className="p-5" accentBar="from-emerald to-cyan" hover={false}>
           <SectionHeader title="Simulator controls" sub="What-if patrol deployment" accent="emerald" icon={Crosshair} className="mb-5" />
 
-          <Slider
-            label="Patrol teams"
-            icon={Users}
-            value={teams}
-            min={1}
-            max={12}
-            onChange={setTeams}
-            suffix=" teams"
-          />
-          <Slider
-            label="Effectiveness"
-            value={effectiveness}
-            min={30}
-            max={95}
-            onChange={setEffectiveness}
-            suffix="%"
-          />
+          <Slider label="Fleet size" icon={Users} value={teams} min={1} max={12} onChange={setTeams} suffix=" teams" />
+          <Slider label="Response-time target" icon={Clock} value={effectiveness} min={30} max={95} onChange={setEffectiveness} suffix="%" />
+          <Slider label="Patrol priority weight" value={priority} min={0} max={100} onChange={setPriority} suffix="%" />
 
           <div className="mt-6 grid grid-cols-2 gap-3">
             <Metric label="CIS reduction" value={reduction} suffix="%" accent="#10B981" />
             <Metric label="Zone coverage" value={coverage} suffix="%" accent="#22D3EE" />
           </div>
+
+          {/* Save chosen fleet size to the global simulation config */}
+          <button
+            onClick={applyConfig}
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-inner bg-gradient-to-r from-violet to-[#6366F1] py-2.5 font-semibold text-white shadow-glow-violet transition-transform hover:-translate-y-0.5"
+          >
+            {savedAt ? <Check size={16} /> : <Rocket size={16} />}
+            {savedAt ? "Config saved" : "🚀 Apply Simulation Config"}
+          </button>
+          <p className="mt-1.5 text-center text-[0.68rem] text-ink-faint">
+            Saves fleet size {teams} to the global config — the OR-Tools Fleet tab picks it up.
+          </p>
         </GlassCard>
 
         {/* CIS reduction chart */}
-        <GlassCard className="p-5 lg:col-span-2" accentBar="from-emerald to-cyan">
+        <GlassCard className="relative p-5 lg:col-span-2" accentBar="from-emerald to-cyan">
           <SectionHeader title="Real-time CIS reduction" sub="Projected impact as patrols deploy" accent="emerald" icon={TrendingDown} className="mb-4" />
-          <ResponsiveContainer width="100%" height={290}>
-            <LineChart data={curve}>
-              <defs>
-                <linearGradient id="emGrad" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#10B981" />
-                  <stop offset="100%" stopColor="#22D3EE" />
-                </linearGradient>
-              </defs>
-              <CartesianGrid {...chartGrid} vertical={false} />
-              <XAxis dataKey="team" {...chartAxis} label={{ value: "patrol teams deployed", fill: "#475569", fontSize: 10, position: "insideBottom", offset: -3 }} />
-              <YAxis {...chartAxis} domain={[0, 80]} />
-              <Tooltip {...chartTooltip} />
-              <Line type="monotone" dataKey="cis" stroke="url(#emGrad)" strokeWidth={3} dot={{ r: 3, fill: "#10B981" }} activeDot={{ r: 6 }} />
-            </LineChart>
-          </ResponsiveContainer>
+          {simLoading && !curve.length ? (
+            <Loading label="Computing projection…" height={290} />
+          ) : (
+            <ResponsiveContainer width="100%" height={290}>
+              <LineChart data={curve}>
+                <defs>
+                  <linearGradient id="emGrad" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#10B981" />
+                    <stop offset="100%" stopColor="#22D3EE" />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid {...chartGrid} vertical={false} />
+                <XAxis dataKey="team" {...chartAxis} label={{ value: "patrol teams deployed", fill: "#475569", fontSize: 10, position: "insideBottom", offset: -3 }} />
+                <YAxis {...chartAxis} domain={[0, 80]} />
+                <Tooltip {...chartTooltip} />
+                <Line type="monotone" dataKey="cis" stroke="url(#emGrad)" strokeWidth={3} dot={{ r: 3, fill: "#10B981" }} activeDot={{ r: 6 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+          {simLoading && curve.length > 0 && (
+            <span className="absolute right-5 top-5 flex items-center gap-1.5 text-xs text-ink-faint">
+              <Loader2 size={12} className="animate-spin" /> updating
+            </span>
+          )}
         </GlassCard>
       </div>
 
@@ -83,7 +118,7 @@ export default function IntelligentDispatch() {
       <GlassCard className="p-5" accentBar="from-rose to-violet">
         <SectionHeader title="EPI leaderboard" sub="Enforcement Priority Index = 0.4·CIS + 0.3·volume + 0.3·avg severity" accent="rose" className="mb-4" />
         <div className="space-y-2">
-          {EPI_RANKING.map((z, i) => {
+          {ranking.map((z, i) => {
             const color = i < 3 ? RANK_COLOR[i] : "#475569";
             return (
               <motion.div
@@ -149,10 +184,12 @@ function Slider({ label, icon: Icon, value, min, max, onChange, suffix = "" }) {
 }
 
 function Metric({ label, value, suffix, accent }) {
+  const display = value % 1 !== 0 ? value.toFixed(1) : value;
   return (
     <div className="rounded-inner border border-subtle bg-card/40 p-3 text-center">
-      <div className="font-display text-2xl" style={{ color: accent }}>
-        <CountUp to={value} decimals={value % 1 !== 0 ? 1 : 0} suffix={suffix} runOnMount />
+      <div className="font-display text-2xl tabular-nums transition-colors" style={{ color: accent }}>
+        {display}
+        {suffix}
       </div>
       <div className="mt-1 text-[0.62rem] uppercase tracking-wider text-ink-faint">{label}</div>
     </div>

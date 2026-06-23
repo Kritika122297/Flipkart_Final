@@ -1,5 +1,7 @@
 import { useRef, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   BarChart,
   Bar,
@@ -8,25 +10,23 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  Cell,
+  ReferenceLine,
 } from "recharts";
-import { Send, Bot, CheckCircle2, AlertOctagon, Sparkles } from "lucide-react";
+import { Send, Bot, CheckCircle2, AlertOctagon, Sparkles, Activity } from "lucide-react";
 import GlassCard from "../components/ui/GlassCard.jsx";
 import SectionHeader from "../components/ui/SectionHeader.jsx";
 import Badge from "../components/ui/Badge.jsx";
+import { Loading, ErrorState } from "../components/ui/AsyncState.jsx";
 import { chartAxis, chartGrid, chartTooltip } from "../lib/tokens.js";
 import ChartGradients, { barFill } from "../lib/chartTheme.jsx";
-import { FEATURE_IMPORTANCE, ANOMALY_LOG, DISPATCH_PLAN } from "../data/mockData.js";
+import { useFetch, endpoints } from "../lib/api.js";
 
 const SUGGESTIONS = [
   "Where should I deploy patrols now?",
   "Summarize today's anomalies",
   "Why is Silk Board flagged?",
 ];
-
-const CANNED = {
-  default:
-    "Based on live EPI scores, Silk Board (100) and MG Road (94) are your top-priority corridors. I recommend deploying 2 patrol units to Silk Board Junction immediately — CIS there spiked +340% over the 7-day baseline, driven by HGV double-parking during the evening rush.",
-};
 
 export default function TacticalCommander() {
   const [history, setHistory] = useState([
@@ -35,39 +35,65 @@ export default function TacticalCommander() {
   const [input, setInput] = useState("");
   const [typing, setTyping] = useState(false);
   const scrollRef = useRef(null);
+  // Stable per-session id so the agent can retrieve adaptive memory.
+  const sessionId = useRef(
+    (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `s-${Date.now()}`)
+  ).current;
+
+  // RF feature importance, anomaly log, dispatch plan.
+  const { data, loading, error, refetch } = useFetch(endpoints.commanderInsights, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [history, typing]);
 
-  const send = (text) => {
+  const send = async (text) => {
     const q = (text ?? input).trim();
-    if (!q) return;
+    if (!q || typing) return;
+    const prior = history;
     setHistory((h) => [...h, { role: "user", text: q }]);
     setInput("");
     setTyping(true);
-    setTimeout(() => {
+    try {
+      const res = await endpoints.commanderChat(q, prior, sessionId);
+      setHistory((h) => [
+        ...h,
+        {
+          role: "ai",
+          text: res.reply,
+          meta: {
+            confidence: res.confidence_score,
+            sources: res.sources,
+            tools: res.tools_called,
+          },
+        },
+      ]);
+    } catch (e) {
+      setHistory((h) => [...h, { role: "ai", text: `⚠️ ${e.message}` }]);
+    } finally {
       setTyping(false);
-      setHistory((h) => [...h, { role: "ai", text: CANNED.default }]);
-    }, 1100);
+    }
   };
+
+  if (loading) return <Loading label="Loading tactical AI insights…" height={420} />;
+  if (error) return <ErrorState error={error} onRetry={refetch} height={420} />;
+
+  const FEATURE_IMPORTANCE = data.featureImportance;
+  const ANOMALY_LOG = data.anomalyLog;
+  const DISPATCH = data.dispatch ?? [];
 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
       {/* Chat console */}
       <GlassCard className="flex flex-col p-0 xl:col-span-2" accentBar="from-violet to-cyan" hover={false}>
         <div className="flex items-center justify-between border-b border-subtle px-5 py-4">
-          <SectionHeader title="Tactical AI Commander" sub="Gemini-class tactical planning" icon={Bot} className="mb-0" />
+          <SectionHeader title="Tactical AI Commander" sub="Groq Llama-3.3-70B · tactical planning" icon={Bot} className="mb-0" />
           <Badge accent="cyan" pulse>Live</Badge>
         </div>
 
-        <div
-          ref={scrollRef}
-          className="h-[420px] space-y-4 overflow-y-auto px-5 py-5"
-          style={{ background: "#080C14" }}
-        >
+        <div ref={scrollRef} className="h-[420px] space-y-4 overflow-y-auto px-5 py-5" style={{ background: "#080C14" }}>
           {history.map((m, i) => (
-            <ChatBubble key={i} role={m.role} text={m.text} />
+            <ChatBubble key={i} role={m.role} text={m.text} meta={m.meta} />
           ))}
           <AnimatePresence>{typing && <TypingBubble />}</AnimatePresence>
         </div>
@@ -104,28 +130,15 @@ export default function TacticalCommander() {
 
       {/* Right column */}
       <div className="space-y-4">
-        {/* Dispatch plan */}
         <GlassCard className="p-5" accentBar="from-emerald to-cyan">
-          <SectionHeader title="Tactical dispatch plan" icon={Sparkles} accent="emerald" className="mb-4" />
+          <SectionHeader title="Tactical dispatch plan" sub="ML-predicted ETA + expected violation" icon={Sparkles} accent="emerald" className="mb-4" />
           <ol className="space-y-2.5">
-            {DISPATCH_PLAN.map((step, i) => (
-              <motion.li
-                key={i}
-                initial={{ opacity: 0, x: 10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.08 }}
-                className="flex gap-2.5 text-sm text-ink-body"
-              >
-                <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-emerald" />
-                <span>
-                  <span className="font-mono text-xs text-emerald">{i + 1}.</span> {step}
-                </span>
-              </motion.li>
+            {DISPATCH.map((d, i) => (
+              <DispatchItem key={d.step} item={d} index={i} />
             ))}
           </ol>
         </GlassCard>
 
-        {/* Anomaly log */}
         <GlassCard className="p-5" accentBar="from-rose to-amber">
           <SectionHeader title="Anomaly log" icon={AlertOctagon} accent="rose" className="mb-4" />
           <div className="space-y-2">
@@ -143,41 +156,177 @@ export default function TacticalCommander() {
         </GlassCard>
       </div>
 
-      {/* Feature importance (full width) */}
-      <GlassCard className="p-5 xl:col-span-3" accentBar="from-violet to-cyan">
-        <SectionHeader title="ML risk-model feature importance" sub="Gradient-boosted next-hour congestion model" className="mb-4" />
-        <ResponsiveContainer width="100%" height={240}>
-          <BarChart data={FEATURE_IMPORTANCE} layout="vertical" margin={{ left: 20 }}>
-            {ChartGradients()}
-            <CartesianGrid {...chartGrid} horizontal={false} />
-            <XAxis type="number" {...chartAxis} domain={[0, 0.3]} />
-            <YAxis type="category" dataKey="feature" tick={{ fill: "#AEB9D4", fontSize: 11 }} width={150} tickLine={false} axisLine={{ stroke: "rgba(148,163,220,0.15)" }} />
-            <Tooltip {...chartTooltip} formatter={(v) => `${(v * 100).toFixed(1)}%`} />
-            <Bar dataKey="importance" radius={[0, 5, 5, 0]} fill={barFill("violet", "h")} />
-          </BarChart>
-        </ResponsiveContainer>
-      </GlassCard>
+      {/* Drivers + hourly prediction, side by side */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:col-span-3">
+        {/* Feature importance (drivers) */}
+        <GlassCard className="p-5" accentBar="from-violet to-cyan">
+          <SectionHeader title="ML risk-model feature importance" sub="Random-forest next-hour congestion model" className="mb-4" />
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={FEATURE_IMPORTANCE} layout="vertical" margin={{ left: 20 }}>
+              {ChartGradients()}
+              <CartesianGrid {...chartGrid} horizontal={false} />
+              <XAxis type="number" {...chartAxis} domain={[0, "dataMax"]} />
+              <YAxis type="category" dataKey="feature" tick={{ fill: "#AEB9D4", fontSize: 11 }} width={150} tickLine={false} axisLine={{ stroke: "rgba(148,163,220,0.15)" }} />
+              <Tooltip {...chartTooltip} formatter={(v) => `${(v * 100).toFixed(1)}%`} />
+              <Bar dataKey="importance" radius={[0, 5, 5, 0]} fill={barFill("violet", "h")} />
+            </BarChart>
+          </ResponsiveContainer>
+        </GlassCard>
+
+        {/* 24-hour congestion risk predictor (prediction output) */}
+        <RiskPredictor />
+      </div>
     </div>
   );
 }
 
-function ChatBubble({ role, text }) {
-  const isUser = role === "user";
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const LEVEL_COLOR = { Low: "#10B981", Medium: "#F59E0B", High: "#FB4D6D", Critical: "#A78BFA" };
+
+function RiskPredictor() {
+  const [day, setDay] = useState("Monday");
+  const { data, loading, error, refetch } = useFetch(() => endpoints.forecastDay(day), [day]);
+  const points = data?.points ?? [];
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+    <GlassCard className="p-5" accentBar="from-amber to-rose">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <SectionHeader title="24-hour congestion risk predictor" sub="ML hourly risk score" icon={Activity} accent="amber" className="mb-0" />
+        <select
+          value={day}
+          onChange={(e) => setDay(e.target.value)}
+          className="rounded-inner border border-subtle bg-card/60 px-3 py-1.5 text-xs text-ink-primary outline-none transition-colors focus:border-amber focus:ring-2 focus:ring-amber/30"
+        >
+          {DAYS.map((d) => (
+            <option key={d} value={d} style={{ background: "#0E1525", color: "#E2E8F0" }}>
+              {d}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {loading ? (
+        <Loading label="Predicting…" height={240} />
+      ) : error ? (
+        <ErrorState error={error} onRetry={refetch} height={240} />
+      ) : (
+        <>
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={points} margin={{ top: 6, right: 6, left: -8, bottom: 0 }}>
+              <CartesianGrid {...chartGrid} vertical={false} />
+              <XAxis dataKey="hour" {...chartAxis} interval={2} />
+              <YAxis {...chartAxis} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+              <Tooltip {...chartTooltip} formatter={(v, _n, p) => [`${v}% · ${p?.payload?.risk_level}`, "Risk"]} />
+              <ReferenceLine
+                y={50}
+                stroke="#FB4D6D"
+                strokeDasharray="4 4"
+                label={{ value: "High Risk Threshold", position: "insideTopRight", fill: "#FB4D6D", fontSize: 10 }}
+              />
+              <Bar dataKey="risk_score" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={700}>
+                {points.map((p, i) => (
+                  <Cell key={i} fill={LEVEL_COLOR[p.risk_level] || "#7C6AF7"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          {/* legend */}
+          <div className="mt-2 flex flex-wrap items-center justify-center gap-3 text-[0.68rem] text-ink-body">
+            {Object.entries(LEVEL_COLOR).map(([lvl, c]) => (
+              <span key={lvl} className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-sm" style={{ background: c }} />
+                {lvl}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+    </GlassCard>
+  );
+}
+
+// One dispatch destination — fetches Model 1 (ETA regressor) + Model 2
+// (violation propensity) for its station/coords and shows them as badges.
+function DispatchItem({ item, index }) {
+  const eta = useFetch(() => endpoints.predictEta(item.lat, item.lon), [item.lat, item.lon]);
+  const prop = useFetch(() => endpoints.predictPropensity(item.station, new Date().getHours()), [item.station]);
+  return (
+    <motion.li
+      initial={{ opacity: 0, x: 10 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: index * 0.08 }}
+      className="rounded-inner border border-subtle bg-card/40 px-3 py-2.5 text-sm"
     >
-      <div
-        className="max-w-[80%] rounded-inner px-4 py-2.5 font-mono text-sm leading-relaxed"
-        style={
-          isUser
-            ? { background: "rgba(124,106,247,0.18)", border: "1px solid rgba(124,106,247,0.4)", color: "#E2E8F0" }
-            : { background: "rgba(34,211,238,0.1)", border: "1px solid rgba(34,211,238,0.3)", color: "#CFFAFE" }
-        }
-      >
-        {text}
+      <div className="flex items-start gap-2.5">
+        <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-emerald" />
+        <div className="min-w-0 flex-1">
+          <div className="text-ink-body">
+            <span className="font-mono text-xs text-emerald">{item.step}.</span> {item.action}
+            {eta.data && <span className="text-ink-primary"> · ETA: <span className="font-semibold text-amber">{eta.data.eta_min} mins</span></span>}
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <span className="rounded-chip px-2 py-0.5 text-[0.62rem] font-semibold" style={{ background: "rgba(124,106,247,0.14)", color: "#7C6AF7", border: "1px solid rgba(124,106,247,0.3)" }}>
+              EPI {item.epi}
+            </span>
+            {prop.loading ? (
+              <span className="text-[0.62rem] text-ink-faint">predicting…</span>
+            ) : prop.data?.available ? (
+              <span className="rounded-chip px-2 py-0.5 text-[0.62rem] font-semibold" style={{ background: "rgba(251,77,109,0.12)", color: "#FB4D6D", border: "1px solid rgba(251,77,109,0.3)" }}>
+                Expected: {prop.data.violation_type} ({prop.data.confidence}%)
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </motion.li>
+  );
+}
+
+function ChatBubble({ role, text, meta }) {
+  const isUser = role === "user";
+  const conf = meta?.confidence;
+  return (
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div className="max-w-[82%]">
+        <div
+          className={
+            "rounded-inner px-4 py-2.5 leading-relaxed " +
+            (isUser ? "whitespace-pre-wrap font-mono text-sm" : "")
+          }
+          style={
+            isUser
+              ? { background: "rgba(124,106,247,0.18)", border: "1px solid rgba(124,106,247,0.4)", color: "#E2E8F0" }
+              : { background: "rgba(34,211,238,0.1)", border: "1px solid rgba(34,211,238,0.3)", color: "#CFFAFE" }
+          }
+        >
+          {isUser ? (
+            text
+          ) : (
+            <div className="md-body">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+            </div>
+          )}
+        </div>
+        {/* explainable-agent footer: confidence + tools + cited guidelines */}
+        {!isUser && meta && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {conf != null && (
+              <span className="rounded-chip px-2 py-0.5 text-[0.62rem] font-semibold" style={{ background: "rgba(16,185,129,0.14)", color: "#10B981", border: "1px solid rgba(16,185,129,0.3)" }}>
+                confidence {conf}%
+              </span>
+            )}
+            {(meta.tools || []).map((t) => (
+              <span key={t} className="rounded-chip px-2 py-0.5 text-[0.6rem] text-ink-faint" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(148,163,220,0.1)" }}>
+                {t}
+              </span>
+            ))}
+            {(meta.sources || []).slice(0, 1).map((s) => (
+              <span key={s} className="rounded-chip px-2 py-0.5 text-[0.6rem] text-violet" style={{ background: "rgba(124,106,247,0.1)", border: "1px solid rgba(124,106,247,0.25)" }}>
+                src: {s.split(":")[0]}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </motion.div>
   );
@@ -188,12 +337,7 @@ function TypingBubble() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex justify-start">
       <div className="flex gap-1 rounded-inner px-4 py-3" style={{ background: "rgba(34,211,238,0.1)", border: "1px solid rgba(34,211,238,0.3)" }}>
         {[0, 1, 2].map((i) => (
-          <motion.span
-            key={i}
-            className="h-2 w-2 rounded-full bg-cyan"
-            animate={{ opacity: [0.3, 1, 0.3] }}
-            transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-          />
+          <motion.span key={i} className="h-2 w-2 rounded-full bg-cyan" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }} />
         ))}
       </div>
     </motion.div>
