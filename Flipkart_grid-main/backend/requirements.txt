@@ -12,6 +12,9 @@ groq>=0.9.0
 python-dotenv>=1.0.0
 ortools>=9.7.0
 
+xgboost>=2.0.0
+lightgbm>=4.0.0
+
 # ── Production agent stack (OPTIONAL — all modules degrade gracefully) ──
 # Install to light up: PostgreSQL persistence, Chroma RAG, LangGraph agent,
 # Prophet/XGBoost forecasting, fuzzy ETL header matching.
@@ -21,7 +24,6 @@ ortools>=9.7.0
 # chromadb>=0.5.0             # vector store for RAG
 # sentence-transformers>=2.7  # embeddings for Chroma
 # prophet>=1.1.5             # seasonal forecasting (else seasonal-naive)
-# xgboost>=2.0.0             # gradient-boosted forecasting alternative
 # langchain>=0.2.0           # agent tool orchestration
 # langchain-groq>=0.1.0      # Groq LLM binding
 # langgraph>=0.1.0           # stateful ReAct graph

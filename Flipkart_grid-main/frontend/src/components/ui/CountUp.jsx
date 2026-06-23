@@ -33,7 +33,10 @@ export default function CountUp({
       if (p < 1) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      started.current = false; // allow re-run after React StrictMode unmount/remount
+    };
   }, [inView, runOnMount, to, from, duration]);
 
   const formatted = val

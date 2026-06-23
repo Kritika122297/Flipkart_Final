@@ -248,7 +248,7 @@ function RiskPredictor() {
 // One dispatch destination — fetches Model 1 (ETA regressor) + Model 2
 // (violation propensity) for its station/coords and shows them as badges.
 function DispatchItem({ item, index }) {
-  const eta = useFetch(() => endpoints.predictEta(item.lat, item.lon), [item.lat, item.lon]);
+  const eta = useFetch(() => endpoints.predictEta({ latitude: item.lat, longitude: item.lon }), [item.lat, item.lon]);
   const prop = useFetch(() => endpoints.predictPropensity(item.station, new Date().getHours()), [item.station]);
   return (
     <motion.li

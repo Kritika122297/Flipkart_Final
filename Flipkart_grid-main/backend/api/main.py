@@ -26,6 +26,7 @@ Design notes
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -48,7 +49,7 @@ try:
 except Exception:  # noqa: BLE001
     pass
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -66,7 +67,6 @@ from api import alerts as alerts_mod  # noqa: E402
 from api import forecasting  # noqa: E402
 from api import agent as agent_mod  # noqa: E402
 from api import rag  # noqa: E402
-import database  # noqa: E402
 from api import etl  # noqa: E402
 from api import ml  # noqa: E402
 
@@ -165,14 +165,22 @@ ZONES = [
 _RNG = np.random.default_rng(42)
 
 
-def _bootstrap_dataframe() -> pd.DataFrame:
-    """Load the demo dataset through loader.py; fall back to a synthetic frame."""
+def _bootstrap_dataframe() -> tuple[pd.DataFrame, str]:
+    """Load the real dataset; fall back to demo then synthetic frame. Returns (df, source)."""
+    try:
+        from api.loader import load_real_dataset
+        df, stats = load_real_dataset()
+        if df is not None and len(df):
+            print(f"[api] Real dataset loaded: {len(df):,} rows")
+            return df, "jan-may-violations"
+    except Exception as exc:  # noqa: BLE001
+        print(f"[api] Real dataset unavailable ({exc}); trying demo")
     try:
         from api.loader import load_and_process_data, load_demo_data
 
         df, _stats = load_and_process_data(load_demo_data())
         if df is not None and len(df):
-            return df
+            return df, "demo"
     except Exception as exc:  # noqa: BLE001
         print(f"[api] loader.py unavailable ({exc}); using synthetic frame")
 
@@ -213,10 +221,10 @@ def _bootstrap_dataframe() -> pd.DataFrame:
     df["junction_factor"] = 1.5
     raw = df["violation_severity"] * df["vehicle_size_score"] * df["junction_factor"]
     df["cis"] = (raw - raw.min()) / (raw.max() - raw.min()) * 100
-    return df
+    return df, "synthetic"
 
 
-DF = _bootstrap_dataframe()
+DF, _BOOT_SOURCE = _bootstrap_dataframe()
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -353,8 +361,22 @@ def set_active_dataset(df: pd.DataFrame, source: str = "demo") -> dict:
     return {"rows": TOTAL_VIOLATIONS, "stations": len(ZONE_STATS), "avgCIS": AVG_CIS, "source": source}
 
 
-# Initialise from the bootstrap (demo) dataframe.
-set_active_dataset(DF, source="demo")
+# Initialise from the bootstrap dataframe.
+set_active_dataset(DF, source=_BOOT_SOURCE)
+
+# Pre-train ML models in a background thread so uvicorn binds the port
+# immediately. Models are ready within ~60s; predictions fall back to
+# physics-based formulas until then.
+import threading as _threading
+
+def _pretrain():
+    try:
+        ml.train_all(DF, DATASET_VERSION)
+        print("[api] ML models pre-trained on bundled dataset")
+    except Exception as _ml_exc:
+        print(f"[api] ML pre-training skipped: {_ml_exc}")
+
+_threading.Thread(target=_pretrain, daemon=True).start()
 
 
 # ── Data-driven derivations (recomputed per request from the active dataset) ──
@@ -449,15 +471,6 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-def _startup():
-    # Create DB tables if a DATABASE_URL is configured (no-op otherwise).
-    try:
-        if database.init_db():
-            print("[api] database tables ready")
-    except Exception as exc:  # noqa: BLE001
-        print(f"[api] init_db skipped: {exc}")
-
 
 @app.get("/api/health")
 def health():
@@ -466,7 +479,6 @@ def health():
         "rows": TOTAL_VIOLATIONS,
         "zones": len(ZONE_STATS),
         "dataset": DATASET_SOURCE,
-        "db": database.DB_ENABLED,
         "rag": rag.backend(),
     }
 
@@ -547,16 +559,12 @@ def map_playback(_: dict = Depends(require_auth)):
     for h in range(24):
         peak = (8 <= h <= 10) or (17 <= h <= 19)
         mid = 11 <= h <= 16
+        base = 0.95 if peak else 0.55 if mid else 0.12
         frame = [
             {
                 "lat": z["lat"],
                 "lon": z["lon"],
-                "intensity": min(
-                    1.0,
-                    (0.85 if peak else 0.5 if mid else 0.22)
-                    * float(_RNG.uniform(0.7, 1.2))
-                    * (z["epi"] / 80),
-                ),
+                "intensity": min(1.0, base * float(_RNG.uniform(0.85, 1.15)) * max(0.4, z["epi"] / 100)),
             }
             for z in ZONE_STATS
         ]
@@ -896,7 +904,7 @@ def _frame_to_rows(df: pd.DataFrame, limit: int = 24) -> list[dict]:
 def data_preview(_: dict = Depends(require_auth)):
     """Default table + quality summary for the bundled dataset."""
     return {
-        "rows": _frame_to_rows(DF),
+        "rows": _frame_to_rows(DF.head(500)),
         "quality": {
             "rawRows": TOTAL_VIOLATIONS + 257,
             "cleanRows": TOTAL_VIOLATIONS,
@@ -909,16 +917,53 @@ def data_preview(_: dict = Depends(require_auth)):
     }
 
 
-@app.post("/api/upload")  # blueprint alias
+# ── Async upload job store ────────────────────────────────────────────────────
+import uuid as _uuid
+
+_upload_jobs: dict[str, dict] = {}  # job_id -> {"status", "result", "error"}
+
+
+def _process_upload(job_id: str, raw: bytes, filename: str, cmap: dict | None):
+    """Runs in a background thread. Updates _upload_jobs[job_id] when done."""
+    try:
+        _upload_jobs[job_id]["status"] = "processing"
+        df, stats = etl.clean_dataframe(raw, column_map=cmap)
+        active = set_active_dataset(df, source=filename or "upload")
+        # Retrain models on the new dataset in the same background thread.
+        try:
+            ml.train_all(DF, DATASET_VERSION)
+        except Exception:  # noqa: BLE001
+            pass
+        _upload_jobs[job_id] = {
+            "status": "done",
+            "result": {
+                "filename": filename,
+                "activated": True,
+                "active": active,
+                "metadata": {
+                    "rawRows": stats["raw_rows"],
+                    "cleanRows": stats["final_rows"],
+                    "droppedDatetime": stats["dropped_datetime"],
+                    "droppedCoords": stats["dropped_coords"],
+                    "dateRange": stats["date_range"],
+                    "stations": stats["stations"],
+                    "locations": stats["locations"],
+                },
+            },
+        }
+    except Exception as exc:  # noqa: BLE001
+        _upload_jobs[job_id] = {"status": "error", "error": str(exc)}
+
+
+@app.post("/api/upload")
 @app.post("/api/data/upload")
 async def data_upload(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     column_map: str | None = Form(None),
     _: dict = Depends(require_auth),
 ):
-    """Robust ETL upload (Pillar 5): fuzzy header mapping, boundary check, CIS,
-    optional DB sink. `column_map` (JSON) lets the UI override ambiguous headers.
-    Falls back to loader.py / raw count if anything fails."""
+    """Accept a CSV, kick off background processing, return a job_id immediately."""
     raw = await file.read()
     cmap = None
     if column_map:
@@ -926,72 +971,20 @@ async def data_upload(
             cmap = json.loads(column_map)
         except Exception:  # noqa: BLE001
             cmap = None
-    try:
-        df, stats = etl.clean_dataframe(raw, column_map=cmap)
-        # Optional: persist to PostgreSQL when DATABASE_URL is configured.
-        persisted = _persist_violations(df)
-        # ── Activate this dataset + eagerly (re)train all 4 ML models ──
-        active = set_active_dataset(df, source=file.filename or "upload")
-        try:
-            active["models"] = ml.train_all(DF, DATASET_VERSION)
-        except Exception as exc:  # noqa: BLE001
-            active["models"] = {"error": str(exc)}
-        return {
-            "filename": file.filename,
-            "activated": True,
-            "active": active,
-            "metadata": {
-                "rawRows": stats["raw_rows"],
-                "cleanRows": stats["final_rows"],
-                "droppedDatetime": stats["dropped_datetime"],
-                "droppedCoords": stats["dropped_coords"],
-                "dateRange": stats["date_range"],
-                "stations": stats["stations"],
-                "locations": stats["locations"],
-                "mappedColumns": stats["mapped_columns"],
-                "memMb": stats["mem_mb"],
-                "persistedToDb": persisted,
-            },
-            "rows": _frame_to_rows(df),
-        }
-    except Exception as exc:  # noqa: BLE001
-        # Fall back to the original loader (still activates), then to a bare count.
-        try:
-            from api.loader import load_and_process_data
-
-            df, stats = load_and_process_data(raw)
-            active = set_active_dataset(df, source=file.filename or "upload")
-            return {
-                "filename": file.filename,
-                "activated": True,
-                "active": active,
-                "metadata": {"rawRows": stats.get("raw_rows"), "cleanRows": stats.get("final_rows"), "note": str(exc)},
-                "rows": _frame_to_rows(df),
-            }
-        except Exception as exc2:  # noqa: BLE001
-            raise HTTPException(status_code=400, detail=f"Could not process CSV: {exc2}")
+    job_id = str(_uuid.uuid4())
+    _upload_jobs[job_id] = {"status": "queued"}
+    background_tasks.add_task(_process_upload, job_id, raw, file.filename or "upload", cmap)
+    return {"job_id": job_id, "status": "queued"}
 
 
-def _persist_violations(df) -> int:
-    """Chunked upsert into PostgreSQL when enabled; returns rows written (0 if off)."""
-    if not database.DB_ENABLED:
-        return 0
-    try:
-        from database.models import Violation
+@app.get("/api/data/upload/status/{job_id}")
+def upload_status(job_id: str, _: dict = Depends(require_auth)):
+    """Poll this until status == 'done' or 'error'."""
+    job = _upload_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
-        cols = ["police_station", "location", "latitude", "longitude", "vehicle_type", "violation_type", "junction_name", "created_datetime", "cis"]
-        present = [c for c in cols if c in df.columns]
-        written = 0
-        with database.SessionLocal() as s:
-            for start in range(0, len(df), 1000):
-                chunk = df.iloc[start : start + 1000]
-                s.bulk_save_objects([Violation(**{c: r[c] for c in present}) for _, r in chunk.iterrows()])
-                written += len(chunk)
-            s.commit()
-        return written
-    except Exception as exc:  # noqa: BLE001
-        print(f"[api] DB persist skipped: {exc}")
-        return 0
 
 
 class CleanBody(BaseModel):
@@ -1120,6 +1113,28 @@ def cctv_infraction(body: InfractionBody, _: dict = Depends(require_auth)):
     }
     DF = pd.concat([DF, pd.DataFrame([row])], ignore_index=True)
     set_active_dataset(DF, source=DATASET_SOURCE)  # re-derive zones/EPI/economics/etc.
+
+    # Build a minimal row dict for the ML live buffer.
+    row_dict = {
+        "latitude": body.latitude,
+        "longitude": body.longitude,
+        "vehicle_type": body.vehicle_type,
+        "violation_type": body.violation_type,
+        "location": body.location,
+        "police_station": body.location,  # use location as proxy
+        "created_datetime": pd.Timestamp.now(),
+        "cis": (body.confidence / 100 * 80 + 20) if body.confidence is not None else cis,
+    }
+    should_retrain = ml.append_live_detection(row_dict)
+    if should_retrain:
+        import threading
+        def _bg_retrain():
+            global DF, DATASET_VERSION
+            DF = ml.flush_live_buffer(DF)
+            DATASET_VERSION += 1
+            ml.train_all(DF, DATASET_VERSION)
+        threading.Thread(target=_bg_retrain, daemon=True).start()
+
     return {
         "appended": True,
         "cis": cis,
@@ -1127,6 +1142,12 @@ def cctv_infraction(body: InfractionBody, _: dict = Depends(require_auth)):
         "totalViolations": TOTAL_VIOLATIONS,
         "avgCIS": AVG_CIS,
     }
+
+
+@app.get("/api/ml/status")
+def ml_status():
+    """ML model status — no auth required so judges can inspect live."""
+    return ml.get_model_status()
 
 
 # ════════════════════════════════════════════════════════════════════════════

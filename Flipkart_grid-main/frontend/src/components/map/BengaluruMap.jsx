@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, useMap } from "react-leaflet";
+import { useEffect, useRef } from "react";
+import { MapContainer, TileLayer, CircleMarker, Circle, Polyline, Popup, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet.heat";
 import { BENGALURU_CENTER, HEAT_POINTS } from "../../data/mockData.js";
@@ -29,19 +29,113 @@ const TILES = {
 };
 
 // ── Heat layer (leaflet.heat) ─────────────────────────────────────────
+// Uses setLatLngs+redraw instead of recreating the layer on every tick so
+// the 24-hour playback is smooth with no blank frames between hours.
 function HeatLayer({ points = HEAT_POINTS }) {
   const map = useMap();
+  const heatRef = useRef(null);
+
+  // Create the layer once; initialise with current points so StrictMode
+  // double-invoke still has data after the first unmount/remount cycle.
   useEffect(() => {
-    if (!points?.length) return;
-    const layer = L.heatLayer(points, {
-      radius: 28,
-      blur: 22,
+    const layer = L.heatLayer(points ?? [], {
+      radius: 40,
+      blur: 25,
       maxZoom: 17,
-      max: 1.0,
+      max: 0.55,        // real intensities top out ~0.48 (rush) → maps to near-red
+      minOpacity: 0.04, // night areas nearly invisible so rush-hour contrast pops
       gradient: HEAT_GRADIENT,
     }).addTo(map);
-    return () => map.removeLayer(layer);
-  }, [map, points]);
+    heatRef.current = layer;
+    return () => {
+      map.removeLayer(layer);
+      heatRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map]); // intentionally omitting `points` — updated via the effect below
+
+  // Update data in-place whenever the hour changes — no layer recreation.
+  useEffect(() => {
+    const layer = heatRef.current;
+    if (!layer || !points?.length) return;
+    layer.setLatLngs(points);
+    layer.redraw();
+  }, [points]);
+
+  return null;
+}
+
+// ── Zone summary circles (one per station, sized by count) ───────────
+function ZoneSummaryCircles({ zones, onSelectLocation, selectedLocation }) {
+  if (!zones?.length) return null;
+  const maxCount = Math.max(...zones.map((z) => z.count || 1), 1);
+  return zones.map((z, i) => {
+    const selected = selectedLocation && z.name === selectedLocation;
+    return (
+      <Circle
+        key={`zs-${i}`}
+        center={[z.lat, z.lon]}
+        radius={320 + (z.count / maxCount) * 750}
+        eventHandlers={onSelectLocation ? { click: () => onSelectLocation(z.name) } : undefined}
+        pathOptions={{
+          color: RISK_COLOR[z.risk] || "#7C6AF7",
+          fillColor: RISK_COLOR[z.risk] || "#7C6AF7",
+          fillOpacity: selected ? 0.22 : 0.1,
+          weight: selected ? 2.5 : z.risk === "critical" ? 2 : 1.5,
+          dashArray: z.risk === "critical" ? undefined : "5 5",
+        }}
+      >
+        <Tooltip sticky>
+          <b>{z.name}</b>
+          {z.count != null && <span> &nbsp;·&nbsp; {z.count.toLocaleString()} violations</span>}
+          {z.avgCis != null && <span> &nbsp;·&nbsp; CIS {z.avgCis}</span>}
+          {z.epi != null && <span> &nbsp;·&nbsp; EPI {z.epi}</span>}
+        </Tooltip>
+      </Circle>
+    );
+  });
+}
+
+// ── Selected zone marker — prominent pin + radar ring on the chosen station ──
+function SelectedZoneMarker({ zone }) {
+  if (!zone?.lat || !zone?.lon) return null;
+  const color = RISK_COLOR[zone.risk] || "#7C6AF7";
+  return (
+    <>
+      {/* Outer glow ring */}
+      <Circle
+        center={[zone.lat, zone.lon]}
+        radius={600}
+        pathOptions={{ color, fillColor: color, fillOpacity: 0.08, weight: 2, dashArray: "6 4" }}
+      />
+      {/* Centre dot */}
+      <CircleMarker
+        center={[zone.lat, zone.lon]}
+        radius={13}
+        pathOptions={{ color, fillColor: color, fillOpacity: 0.75, weight: 3 }}
+      >
+        <Popup>
+          <div style={{ minWidth: 160 }}>
+            <div style={{ fontWeight: 700, color, marginBottom: 4 }}>{zone.name}</div>
+            {zone.count != null && <div style={{ fontSize: 12, color: "#94A3B8" }}>{zone.count.toLocaleString()} violations</div>}
+            {zone.avgCis != null && <div style={{ fontSize: 12, color: "#94A3B8" }}>Avg CIS: {zone.avgCis}</div>}
+            {zone.epi != null && <div style={{ fontSize: 12, color: "#94A3B8" }}>EPI: {zone.epi}</div>}
+          </div>
+        </Popup>
+      </CircleMarker>
+      <RadarRing lat={zone.lat} lon={zone.lon} color={color} />
+    </>
+  );
+}
+
+// ── Fly-to handler — animates map to a target when selectedLocation changes ──
+function FlyToHandler({ target }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!target) return;
+    map.flyTo([target.lat, target.lon], 14, { duration: 1.2 });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, target?.name]); // key by name so object ref churn doesn't re-fire
   return null;
 }
 
@@ -59,14 +153,16 @@ function pulseIcon(risk) {
 
 /**
  * Reusable Bengaluru map.
- *  - markers: [{lat, lon, risk, cis, zone}]
- *  - heat:    boolean (show heatmap layer)
- *  - heatPoints: optional override [[lat,lon,intensity]]
- *  - routes:  [{path:[[lat,lon]], color, name}]
- *  - radar:   [{lat,lon,color}] expanding ping rings
+ *  - markers:       [{lat, lon, risk, cis, zone}] individual scatter markers
+ *  - zoneSummaries: [{lat, lon, name, count, avgCis, epi, risk}] one circle per station
+ *  - heat:          boolean (show heatmap layer)
+ *  - heatPoints:    optional override [[lat,lon,intensity]]
+ *  - routes:        [{path:[[lat,lon]], color, name}]
+ *  - radar:         [{lat,lon,color}] expanding ping rings
  */
 export default function BengaluruMap({
   markers = [],
+  zoneSummaries = [],
   heat = false,
   heatPoints,
   routes = [],
@@ -78,6 +174,7 @@ export default function BengaluruMap({
   mode = "Dark",
   onSelectLocation,
   selectedLocation,
+  flyTo = null,
   borderRadius = "16px",
   animatedRoutes = false,
   warnings = [],
@@ -103,6 +200,11 @@ export default function BengaluruMap({
         />
 
         {heat && <HeatLayer points={heatPoints} />}
+        <FlyToHandler target={flyTo} />
+        <SelectedZoneMarker zone={flyTo} />
+
+        {/* Clean zone-level circles (decluttered alternative to scatter markers) */}
+        <ZoneSummaryCircles zones={zoneSummaries} onSelectLocation={onSelectLocation} selectedLocation={selectedLocation} />
 
         {routes.map((r, i) => (
           <Polyline
@@ -123,9 +225,9 @@ export default function BengaluruMap({
           <RadarRing key={`r-${i}`} lat={p.lat} lon={p.lon} color={p.color || "#7C6AF7"} />
         ))}
 
-        {/* Emerging-risk zones (Model 3) — glowing yellow warning circles */}
+        {/* Emerging-risk zones (Model 3) — amber dashed rings + pulsing dot */}
         {warnings.map((w, i) => (
-          <EmergingZone key={`w-${i}`} lat={w.lat} lon={w.lon} growth={w.growth} />
+          <EmergingZone key={`w-${i}`} lat={w.lat ?? w.latitude} lon={w.lon ?? w.longitude} growth={w.growth ?? w.growth_rate} recent={w.recent} prior={w.prior} />
         ))}
 
         {markers.map((m, i) =>
@@ -198,11 +300,28 @@ function MarkerWithIcon({ m, onSelectLocation, selectedLocation }) {
   );
 }
 
-// Emerging-risk zone — yellow pulsing ring + dot + "Emerging Risk Zone" popup.
-function EmergingZone({ lat, lon, growth }) {
+// Emerging-risk zone — amber dashed Circle ring + pulsing dot + tooltip.
+function EmergingZone({ lat, lon, growth, recent, prior }) {
   const YELLOW = "#F5D90A";
+  const growthVal = growth ?? 0;
+  const recentVal = recent ?? 0;
   return (
     <>
+      <Circle
+        center={[lat, lon]}
+        radius={Math.max(300, growthVal * 15)}
+        pathOptions={{
+          color: "#F59E0B",
+          fillColor: "#F59E0B",
+          fillOpacity: 0.08,
+          dashArray: "8 6",
+          weight: 2,
+        }}
+      >
+        <Tooltip permanent={false}>
+          ⚠ Emerging Risk Zone · +{growthVal}% WoW · {recentVal} violations this week
+        </Tooltip>
+      </Circle>
       <RadarRing lat={lat} lon={lon} color={YELLOW} />
       <CircleMarker
         center={[lat, lon]}
@@ -213,7 +332,7 @@ function EmergingZone({ lat, lon, growth }) {
           <div style={{ minWidth: 150 }}>
             <div style={{ fontWeight: 700, color: YELLOW, marginBottom: 4 }}>⚠️ Emerging Risk Zone</div>
             <div style={{ fontSize: 12, color: "#94A3B8" }}>
-              Density {growth > 0 ? `+${growth}%` : "elevated"} week-over-week
+              Density {growthVal > 0 ? `+${growthVal}%` : "elevated"} week-over-week
             </div>
           </div>
         </Popup>

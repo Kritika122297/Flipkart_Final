@@ -87,26 +87,6 @@ def _wants_forecast(q: str) -> bool:
 
 # ── Memory ───────────────────────────────────────────────────────────────────
 def _recent_turns(session_id, history, limit=10):
-    try:
-        import database
-
-        if database.DB_ENABLED and session_id:
-            from database.models import InteractionLog
-
-            with database.SessionLocal() as s:
-                rows = (
-                    s.query(InteractionLog)
-                    .filter(InteractionLog.session_id == session_id)
-                    .order_by(InteractionLog.timestamp.desc())
-                    .limit(limit)
-                    .all()
-                )
-            turns = []
-            for r in reversed(rows):
-                turns += [{"role": "user", "text": r.user_query or ""}, {"role": "ai", "text": r.ai_response or ""}]
-            return turns
-    except Exception:  # noqa: BLE001
-        pass
     return (history or [])[-limit:]
 
 
@@ -116,18 +96,7 @@ def _corrections(turns):
 
 
 def log_interaction(session_id, user_query, ai_response, tools_called):
-    try:
-        import database
-
-        if not database.DB_ENABLED:
-            return
-        from database.models import InteractionLog
-
-        with database.SessionLocal() as s:
-            s.add(InteractionLog(session_id=session_id or "anon", user_query=user_query, ai_response=ai_response, tools_called=tools_called))
-            s.commit()
-    except Exception:  # noqa: BLE001
-        pass
+    pass
 
 
 def _peak_str(h):

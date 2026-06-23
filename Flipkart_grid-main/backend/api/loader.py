@@ -137,6 +137,43 @@ def load_and_process_data(source):
     return df, stats
 
 
+def load_real_dataset():
+    """Load the real police-violation CSV from the Dataset/ folder at the repo root.
+
+    Returns (df, stats).  Falls back to (load_demo_data(), {}) if the file is
+    not present so the caller can handle gracefully.
+    """
+    from pathlib import Path
+
+    csv_path = (
+        Path(__file__).parent.parent.parent
+        / "Dataset"
+        / "jan to may police violation_anonymized791b166.csv"
+    )
+    if not csv_path.exists():
+        return load_demo_data(), {}
+
+    df = pd.read_csv(csv_path, low_memory=False)
+    # Keep only approved records (NaN rows pass through — they weren't rejected).
+    if "validation_status" in df.columns:
+        df = df[
+            df["validation_status"].isin(["approved"])
+            | df["validation_status"].isna()
+        ]
+    # Drop columns not needed by the pipeline.
+    drop_cols = [
+        "vehicle_number", "description", "offence_code", "closed_datetime",
+        "modified_datetime", "device_id", "created_by_id", "center_code",
+        "data_sent_to_scita", "action_taken_timestamp",
+        "data_sent_to_scita_timestamp", "updated_vehicle_number",
+        "updated_vehicle_type", "validation_status", "validation_timestamp",
+    ]
+    df = df.drop(columns=[c for c in drop_cols if c in df.columns])
+
+    from api import etl
+    return etl.clean_dataframe(df)   # returns (df, stats)
+
+
 def auto_load():
     """Try default paths. Returns (df, stats) or (None, None)."""
     for p in DEFAULT_PATHS:

@@ -32,6 +32,8 @@ export default function IntelligentDispatch() {
     setTimeout(() => setSavedAt(false), 2200);
   };
 
+  const [etas, setEtas] = useState({});  // keyed by hotspot index
+
   // EPI leaderboard (load once).
   const { data: lb, loading: lbLoading, error: lbError, refetch } = useFetch(
     endpoints.simulatorLeaderboard,
@@ -46,6 +48,23 @@ export default function IntelligentDispatch() {
     }, 250);
     return () => clearTimeout(id);
   }, [teams, effectiveness, priority, runSim]);
+
+  // Fetch ETA predictions for the top 5 hotspots in the leaderboard.
+  useEffect(() => {
+    if (!lb?.ranking?.length) return;
+    const top5 = lb.ranking.slice(0, 5);
+    Promise.all(
+      top5.map((h, i) =>
+        endpoints.predictEta({ latitude: h.lat ?? h.latitude, longitude: h.lon ?? h.longitude })
+          .then((r) => ({ i, eta: r.eta_min }))
+          .catch(() => ({ i, eta: null }))
+      )
+    ).then((results) => {
+      const map = {};
+      results.forEach(({ i, eta }) => { map[i] = eta; });
+      setEtas(map);
+    });
+  }, [lb]);
 
   if (lbLoading) return <Loading label="Loading dispatch intelligence…" height={420} />;
   if (lbError) return <ErrorState error={lbError} onRetry={refetch} height={420} />;
@@ -146,6 +165,16 @@ export default function IntelligentDispatch() {
                 <div className="w-14 text-right font-mono text-sm font-semibold" style={{ color }}>{z.epi}</div>
                 <div className="hidden w-20 text-right text-xs text-ink-faint md:block">{z.count} viol.</div>
                 <div className="hidden w-20 text-right text-xs text-ink-faint md:block">{z.rushPct}% rush</div>
+                {etas[i] != null && (
+                  <span className="rounded-chip px-2 py-0.5 text-xs font-semibold"
+                    style={etas[i] < 10
+                      ? { background: "rgba(16,185,129,0.15)", color: "#10B981", border: "1px solid rgba(16,185,129,0.3)" }
+                      : etas[i] < 20
+                      ? { background: "rgba(245,158,11,0.15)", color: "#F59E0B", border: "1px solid rgba(245,158,11,0.3)" }
+                      : { background: "rgba(251,77,109,0.15)", color: "#FB4D6D", border: "1px solid rgba(251,77,109,0.3)" }}>
+                    ETA {etas[i]} min
+                  </span>
+                )}
               </motion.div>
             );
           })}

@@ -26,6 +26,50 @@ MAX_PARKING_DELAY_MIN = 8.0
 # Model cache keyed by dataset version so we retrain only when data changes.
 _cache: dict = {"version": None, "eta": None, "prop": None}
 
+import datetime as _dt
+
+_live_buffer: list[dict] = []
+RETRAIN_THRESHOLD = 50
+
+_model_status: dict = {
+    "eta":        {"trained": False, "engine": "none", "rows": 0, "last_trained": None},
+    "propensity": {"trained": False, "engine": "none", "rows": 0, "last_trained": None},
+    "hotspots":   {"trained": False, "rows": 0, "last_trained": None},
+    "forecast":   {"trained": False, "engine": "none", "last_trained": None},
+    "retrain_threshold": RETRAIN_THRESHOLD,
+}
+
+
+def get_model_status() -> dict:
+    return {**_model_status, "live_buffered": len(_live_buffer)}
+
+
+def append_live_detection(row: dict) -> bool:
+    _live_buffer.append(row)
+    return len(_live_buffer) >= RETRAIN_THRESHOLD
+
+
+def flush_live_buffer(base_df: pd.DataFrame) -> pd.DataFrame:
+    global _live_buffer
+    if not _live_buffer:
+        return base_df
+    live_df = pd.DataFrame(_live_buffer)
+    _live_buffer = []
+    now = pd.Timestamp.now()
+    for col, default in [("created_datetime", now), ("cis", 50.0),
+                         ("hour", now.hour), ("is_rush_hour", 0),
+                         ("is_weekend", 0), ("vehicle_size_score", 3),
+                         ("violation_severity", 3), ("junction_factor", 1.0),
+                         ("time_factor", 1.5)]:
+        if col not in live_df.columns:
+            live_df[col] = default
+    if "hour" in live_df.columns and live_df["hour"].isna().any():
+        live_df["created_datetime"] = pd.to_datetime(
+            live_df.get("created_datetime", now), errors="coerce"
+        )
+        live_df["hour"] = live_df["created_datetime"].dt.hour.fillna(12).astype(int)
+    return pd.concat([base_df, live_df], ignore_index=True)
+
 
 def _haversine_km(a, b):
     R = 6371.0
@@ -44,15 +88,11 @@ def _is_rush(h: int) -> int:
 #  MODEL 1 — Tow-truck response-time predictor (regression)
 # ════════════════════════════════════════════════════════════════════════════
 def _train_eta(df: pd.DataFrame):
-    """Train a RandomForestRegressor on (distance, location CIS, rush-hour) → ETA.
+    """Train a regressor on (distance, location CIS, rush-hour) → ETA.
 
+    Tries XGBoost first; falls back to RandomForest if xgboost is not installed.
     Ground-truth ETA is derived from a physical model (base travel + parking
-    delay) plus noise, so the forest learns the response surface."""
-    try:
-        from sklearn.ensemble import RandomForestRegressor
-    except Exception:  # noqa: BLE001
-        return None
-
+    delay) plus noise, so the model learns the response surface."""
     sample = df.dropna(subset=["latitude", "longitude", "cis"])
     if len(sample) > 8000:
         sample = sample.sample(8000, random_state=42)
@@ -72,8 +112,21 @@ def _train_eta(df: pd.DataFrame):
     y = base + delay + rush_pen + rng.normal(0, 1.0, len(sample))
 
     X = np.column_stack([dist, cis, rush])
-    model = RandomForestRegressor(n_estimators=120, max_depth=10, n_jobs=-1, random_state=42)
+    try:
+        from xgboost import XGBRegressor
+        model = XGBRegressor(n_estimators=200, max_depth=6, learning_rate=0.1,
+                             n_jobs=-1, random_state=42, tree_method="hist")
+        engine = "xgboost"
+    except ImportError:
+        from sklearn.ensemble import RandomForestRegressor
+        model = RandomForestRegressor(n_estimators=120, max_depth=10,
+                                      n_jobs=-1, random_state=42)
+        engine = "randomforest"
+    except Exception:  # noqa: BLE001
+        return None
     model.fit(X, np.maximum(1.0, y))
+    _model_status["eta"] = {"trained": True, "engine": engine,
+                            "rows": len(sample), "last_trained": _dt.datetime.now().isoformat()}
     return model
 
 
@@ -106,12 +159,16 @@ def train_all(df, version) -> dict:
     """Eagerly (re)train all models on the active dataset — called on CSV upload."""
     _cache.update(version=version, eta=_train_eta(df), prop=_train_propensity(df))
     em = emerging_hotspots(df)
+    _model_status["hotspots"] = {"trained": True, "rows": len(df), "last_trained": _dt.datetime.now().isoformat()}
     ec = economic_forecast(df, days=30)
+    _model_status["forecast"] = {"trained": True, "engine": ec.get("engine", "none"), "last_trained": _dt.datetime.now().isoformat()}
     return {
         "etaTrained": _cache["eta"] is not None,
         "propensityTrained": _cache["prop"] is not None,
         "emergingZones": len(em),
         "economicEngine": ec["engine"],
+        "etaEngine": _model_status["eta"]["engine"],
+        "propensityEngine": _model_status["propensity"]["engine"],
     }
 
 
@@ -119,10 +176,6 @@ def train_all(df, version) -> dict:
 #  MODEL 2 — Violation-type propensity (multiclass classification)
 # ════════════════════════════════════════════════════════════════════════════
 def _train_propensity(df: pd.DataFrame):
-    try:
-        from sklearn.tree import DecisionTreeClassifier
-    except Exception:  # noqa: BLE001
-        return None
     need = {"vehicle_size_score", "hour", "police_station", "violation_type"}
     if not need.issubset(df.columns):
         return None
@@ -140,8 +193,20 @@ def _train_propensity(df: pd.DataFrame):
         sample["police_station"].astype(str).map(scode).fillna(0).to_numpy(),
     ])
     y = sample["violation_type"].astype(str).to_numpy()
-    clf = DecisionTreeClassifier(max_depth=8, min_samples_leaf=25, random_state=42)
+    try:
+        import lightgbm as lgb
+        clf = lgb.LGBMClassifier(n_estimators=200, max_depth=8,
+                                 min_child_samples=25, random_state=42, verbose=-1)
+        engine = "lightgbm"
+    except ImportError:
+        from sklearn.tree import DecisionTreeClassifier
+        clf = DecisionTreeClassifier(max_depth=8, min_samples_leaf=25, random_state=42)
+        engine = "decisiontree"
+    except Exception:  # noqa: BLE001
+        return None
     clf.fit(X, y)
+    _model_status["propensity"] = {"trained": True, "engine": engine,
+                                   "rows": len(sample), "last_trained": _dt.datetime.now().isoformat()}
     # typical vehicle size per station (feature value at inference)
     veh = sample.groupby("police_station", observed=True)["vehicle_size_score"].mean().to_dict()
     return {"clf": clf, "scode": scode, "veh": veh, "veh_mean": float(sample["vehicle_size_score"].mean())}
@@ -178,6 +243,8 @@ def emerging_hotspots(df: pd.DataFrame):
     d = df.dropna(subset=["latitude", "longitude", "created_datetime"])
     if len(d) < 30:
         return []
+    if len(d) > 20000:
+        d = d.sample(20000, random_state=42)
 
     def _emit(lat, lon, growth_pct, recent, prior):
         return {
@@ -244,7 +311,7 @@ def economic_forecast(df: pd.DataFrame, days: int = 30):
         return {"engine": "none", "history": [], "points": []}
     d["date"] = d["created_datetime"].dt.normalize()
     # daily cost ≈ violations × 0.5 person-hr × ₹320, CIS-weighted
-    daily = d.groupby("date").apply(lambda g: len(g) * 0.5 * 320 * (1 + g["cis"].mean() / 100)).reset_index(name="loss")
+    daily = d.groupby("date").apply(lambda g: len(g) * 0.5 * 320 * (1 + g["cis"].mean() / 100), include_groups=False).reset_index(name="loss")
     daily = daily.sort_values("date")
     history = [{"date": r["date"].strftime("%Y-%m-%d"), "loss": round(float(r["loss"])), "type": "history"} for _, r in daily.tail(30).iterrows()]
 

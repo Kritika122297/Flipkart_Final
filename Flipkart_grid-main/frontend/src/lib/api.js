@@ -66,7 +66,8 @@ export const endpoints = {
   forecastDay: (day) => api.get("/forecast/predict", { params: { day } }).then((r) => r.data),
   alerts: () => api.get("/alerts").then((r) => r.data),
   // ── Advanced ML models ──
-  predictEta: (latitude, longitude, hour) => api.post("/predict/eta", { latitude, longitude, hour }).then((r) => r.data),
+  mlStatus: () => api.get("/ml/status").then((r) => r.data),
+  predictEta: (body) => api.post("/predict/eta", body).then((r) => r.data),
   predictPropensity: (station, hour = 18) => api.get("/predict/propensity", { params: { station, hour } }).then((r) => r.data),
   emergingHotspots: () => api.get("/predict/emerging").then((r) => r.data),
   economicForecast: (days = 30) => api.get("/forecast/economic", { params: { days } }).then((r) => r.data),
@@ -75,11 +76,11 @@ export const endpoints = {
     const fd = new FormData();
     fd.append("file", file);
     if (columnMap) fd.append("column_map", JSON.stringify(columnMap));
-    // Large CSVs (100k+ rows) take longer than the default — allow 2 minutes.
     return api
-      .post("/data/upload", fd, { headers: { "Content-Type": "multipart/form-data" }, timeout: 120000 })
+      .post("/data/upload", fd, { headers: { "Content-Type": "multipart/form-data" } })
       .then((r) => r.data);
   },
+  uploadStatus: (jobId) => api.get(`/data/upload/status/${jobId}`).then((r) => r.data),
   emergencyOptions: () => api.get("/emergency/options").then((r) => r.data),
   emergencyResponse: (station, hospital) =>
     api.get("/emergency/response", { params: { station, hospital } }).then((r) => r.data),
